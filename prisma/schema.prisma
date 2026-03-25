@@ -1,0 +1,80 @@
+// JobHunter AI — PostgreSQL via Prisma
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum JobPlatform {
+  BOSS     @map("boss")
+  LIEPIN   @map("liepin")
+  JOB51    @map("job51")
+  ZHILIAN  @map("zhilian")
+  MANUAL   @map("manual")
+}
+
+enum ApplicationStatus {
+  NEW              @map("new")
+  SCORED_HIGH      @map("scored_high")
+  SCORED_LOW       @map("scored_low")
+  REVIEWED         @map("reviewed")
+  READY_TO_APPLY   @map("ready_to_apply")
+}
+
+model Job {
+  id            String      @id @default(cuid())
+  title         String
+  company       String
+  salary        String?
+  jdText        String      @db.Text
+  requirements  String[]    @default([])
+  url           String?
+  platform      JobPlatform @default(MANUAL)
+  companyInfo   Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  applications Application[]
+}
+
+model Resume {
+  id           String   @id @default(cuid())
+  title        String   @default("我的简历")
+  rawMarkdown  String   @db.Text
+  filePath     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  applications Application[]
+}
+
+model Application {
+  id                 String            @id @default(cuid())
+  jobId              String
+  job                Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  resumeId           String
+  resume             Resume            @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  status             ApplicationStatus @default(NEW)
+  tailoredResumeJson String?           @db.Text
+  coverLetter        String?           @db.Text
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  scores Score[]
+
+  @@unique([jobId, resumeId])
+}
+
+model Score {
+  id              String        @id @default(cuid())
+  applicationId   String
+  application     Application   @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  matchScore      Int
+  analysisJson    Json
+  model           String?
+  createdAt       DateTime      @default(now())
+}
