@@ -19,6 +19,7 @@ JobHunter/
 │   ├── lib/
 │   │   ├── ai/                # OpenAI 调用与业务封装
 │   │   ├── crawler/           # Playwright 抓取 + 登录态预留
+│   │   ├── crawl/             # 本地 BOSS 爬虫 URL / 可执行路径解析
 │   │   ├── export/            # PDF / Word
 │   │   └── prisma.ts          # Prisma 单例（Pg 适配器）
 │   └── prompts/               # 全部 LLM 提示词（独立文件）
@@ -37,6 +38,8 @@ JobHunter/
 - 可选 `OPENAI_MODEL`（默认 `gpt-4o-mini`）
 - `ALLOWED_AI_BASE_URLS` — 允许的 AI Base URL 白名单（逗号分隔）
 - 可选 `JOBHUNTER_ADMIN_TOKEN` — 保护 `/api/ai/ping` 和飞书集成接口
+- 可选 `JOBHUNTER_ALLOW_LOCAL_CRAWL=1` — 非 `development` 时仍允许 `POST /api/crawl/local`（默认仅 dev 可用）
+- 可选 `JOBHUNTER_CRAWL_PYTHON` — 覆盖本地爬虫使用的 Python 可执行文件路径
 - 可选飞书同步层：`FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_BITABLE_APP_TOKEN`、`FEISHU_BITABLE_TABLE_ID`、`FEISHU_BOT_WEBHOOK`
 
 ### 前端 API 设置（本地存储）
@@ -112,6 +115,7 @@ JobHunter/
 | GET | `/api/applications/[id]/export/docx` | 导出 Word |
 | GET | `/api/applications/[id]/export/md` | 导出 Markdown |
 | POST | `/api/crawler` | Playwright 抓取 `{ url, platform }` |
+| POST | `/api/crawl/local` | 本机子进程跑 `crawl_boss.py`（BOSS；`platform: other` 返回 501） |
 | POST | `/api/integrations/feishu/sync-application` | 同步单条投递到飞书多维表 |
 | POST | `/api/integrations/feishu/sync-report` | 发送轻量报表到飞书机器人 |
 | POST | `/api/integrations/feishu/notify` | 发送自定义通知到飞书机器人 |
@@ -125,7 +129,7 @@ JobHunter/
 - **PDF 导出**：若存在 `resume-template/`（含 `CV.tex`、字体与 `fontawesomesymbols-*.tex`）且机器已安装 `xelatex`，则用模板生成 PDF（正文为简历 Markdown，不含模板内示例；不显示 `zju.png`）。抬头姓名见代码里 `RESUME_DISPLAY_NAME`（默认「韦莉萍」）；联系方式读取 `cv_infor/contact.txt`（推荐一行：`电话 | 邮箱`）；头像优先使用 `cv_infor/cv.jpg`（复制为 `avatar.jpg` 参与编译），否则使用模板自带 `avatar.jpg`。若 LaTeX 失败则回退 jsPDF；响应头 `X-Resume-Export-Mode` 为 `xelatex-template` 或 `jspdf-fallback`；调试时可在 URL 加 `?debug=1`，失败时返回 JSON 错误而非 PDF。
 - **截图识别（Vision）**：需要在「API 设置」里选择支持图片输入的模型；不同供应商模型命名不同，若不支持会返回友好错误。
 - **简历导入**：PDF 若为扫描件可能无法解析出文本，请改用图片上传（走 Vision）或先做 OCR。
-- **爬虫（可选）**：各平台 DOM 与登录策略变化快，且常受反爬影响；当前主流程推荐用截图识别替代。
+- **爬虫（可选）**：各平台 DOM 与登录策略变化快，且常受反爬影响；当前主流程推荐用截图识别替代。BOSS 实验爬虫（DrissionPage）见 [tools/boss_zhipin_crawl/README.md](tools/boss_zhipin_crawl/README.md)：列表 `joblist`、详情页**按「职位描述」等分节裁剪 JD**、可选导入与 `resumeId=auto`。**首页**「本地 BOSS 抓取」会调用 `POST /api/crawl/local`（本机 Chrome 需已登录、`tools/boss_zhipin_crawl/.venv` 已安装依赖）；仅 `development` 或 `JOBHUNTER_ALLOW_LOCAL_CRAWL=1`。平台选「其他」时接口返回未实现。请自用低频并自行遵守平台条款。
 - **飞书定位**：飞书仅作为同步层（看板、通知、轻报表），主数据仍以 PostgreSQL 为准。
 
 ## Resume LaTeX Export Workflow (Skill Spec)

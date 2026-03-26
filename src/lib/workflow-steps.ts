@@ -40,3 +40,7 @@ export function buildWorkspaceDocumentTitle(
 export function defaultDocumentTitle(): string {
   return BRAND_SUFFIX;
 }
+
+export function buildExplorerDocumentTitle(): string {
+  return `🔍 岗位探索 | ${BRAND_SUFFIX}`;
+}

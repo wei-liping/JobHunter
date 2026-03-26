@@ -1,9 +1,10 @@
-import { JobExplorerPage } from "@/components/job-explorer/JobExplorerPage";
+import { Suspense } from "react";
+import { HomeBoard } from "@/components/home-board";
 import { AiConfigDialog } from "@/components/ai-config-dialog";
 
-export default function HomePage() {
+export default function WorkspacePage() {
   return (
-    <div className="flex min-h-screen flex-col bg-muted/30">
+    <div className="flex min-h-screen flex-col">
       <header className="border-b bg-background px-6 py-4">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
           <div className="flex items-center gap-2">
@@ -14,14 +15,18 @@ export default function HomePage() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">
-              选岗位 · 进工作台处理投递
+              在下方创建投递
             </span>
             <AiConfigDialog />
           </div>
         </div>
       </header>
       <main className="mx-auto w-full max-w-7xl flex-1 p-6">
-        <JobExplorerPage />
+        <Suspense
+          fallback={<p className="text-sm text-muted-foreground">加载中…</p>}
+        >
+          <HomeBoard />
+        </Suspense>
       </main>
     </div>
   );

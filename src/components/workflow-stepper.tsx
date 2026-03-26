@@ -35,8 +35,8 @@ export function WorkflowStepper({
         const showCheck = stepCompleted;
 
         const step1Href = applicationId
-          ? `/?applicationId=${encodeURIComponent(applicationId)}`
-          : "/";
+          ? `/workspace?applicationId=${encodeURIComponent(applicationId)}`
+          : "/workspace";
         const step2Href = applicationId
           ? `/applications/${applicationId}`
           : null;

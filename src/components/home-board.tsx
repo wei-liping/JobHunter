@@ -16,6 +16,11 @@ import { Separator } from "@/components/ui/separator";
 import { fetchWithAiHeaders } from "@/lib/client/fetch-with-ai";
 import { FileDropzone } from "@/components/file-dropzone";
 import { WorkflowStepper } from "@/components/workflow-stepper";
+import { SimpleModal } from "@/components/ui/simple-modal";
+import {
+  readResumeUploadedFromSession,
+  writeResumeUploadedToSession,
+} from "@/lib/client/resume-session";
 import {
   buildHomeDocumentTitle,
   defaultDocumentTitle,
@@ -49,21 +54,29 @@ const statusLabel: Record<string, string> = {
   READY_TO_APPLY: "准备投递",
 };
 
+const EXPLORER_PARAM_KEYS = [
+  "jobId",
+  "jobTitle",
+  "company",
+  "salary",
+  "city",
+  "platform",
+  "experience",
+  "education",
+  "fromExplorer",
+] as const;
+
 export function HomeBoard() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const applicationIdFromQuery = searchParams.get("applicationId");
 
   const [applications, setApplications] = useState<ApplicationListItem[]>([]);
-  const [resumeMd, setResumeMd] = useState(
-    "## 张三\n\n### 工作经历\n- 某公司 · 工程师 · 2021-至今\n  - 负责后端与 AI 功能交付。\n",
-  );
-  const [jobTitle, setJobTitle] = useState("AI 产品经理");
-  const [company, setCompany] = useState("示例医疗科技");
-  const [salary, setSalary] = useState("20-30K");
-  const [jdText, setJdText] = useState(
-    "岗位职责：负责 AI 产品规划...\n任职要求：本科，5 年经验，熟悉大模型应用。",
-  );
+  const [resumeMd, setResumeMd] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
+  const [company, setCompany] = useState("");
+  const [salary, setSalary] = useState("");
+  const [jdText, setJdText] = useState("");
   const [loading, setLoading] = useState(false);
   const [resumeId, setResumeId] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -77,6 +90,22 @@ export function HomeBoard() {
   const [visionNotice, setVisionNotice] = useState<string | null>(null);
   const [resumeNotice, setResumeNotice] = useState<string | null>(null);
   const resumeImportInFlight = useRef(false);
+  const pdfInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [crawlKeyword, setCrawlKeyword] = useState("");
+  const [crawlPlatform, setCrawlPlatform] = useState<"boss" | "other">("boss");
+  const [crawlCityCode, setCrawlCityCode] = useState("101280600");
+  const [crawlFetchDetails, setCrawlFetchDetails] = useState(true);
+  const [crawlResumeAuto, setCrawlResumeAuto] = useState(false);
+  const [crawlBusy, setCrawlBusy] = useState(false);
+  const [crawlNotice, setCrawlNotice] = useState<string | null>(null);
+
+  const [isResumeUploaded, setIsResumeUploaded] = useState(false);
+  const [showPasteResume, setShowPasteResume] = useState(false);
+  const [showResumeGateModal, setShowResumeGateModal] = useState(false);
+  const [jobContextBanner, setJobContextBanner] = useState(false);
+  const [contextCity, setContextCity] = useState<string | null>(null);
+  const [contextPlatform, setContextPlatform] = useState<string | null>(null);
 
   const isEditMode = Boolean(editApplicationId && jobId && resumeId);
 
@@ -95,6 +124,79 @@ export function HomeBoard() {
       document.title = defaultDocumentTitle();
     };
   }, []);
+
+  useEffect(() => {
+    setIsResumeUploaded(readResumeUploadedFromSession());
+  }, []);
+
+  useEffect(() => {
+    if (applicationIdFromQuery) return;
+
+    const jobIdParam = searchParams.get("jobId");
+    const jobTitleParam = searchParams.get("jobTitle");
+    if (!jobTitleParam && !jobIdParam) return;
+
+    if (jobTitleParam) setJobTitle(jobTitleParam);
+    const companyParam = searchParams.get("company");
+    if (companyParam) setCompany(companyParam);
+    const salaryParam = searchParams.get("salary");
+    if (salaryParam) setSalary(salaryParam);
+    const cityParam = searchParams.get("city");
+    setContextCity(cityParam);
+    const platformParam = searchParams.get("platform");
+    setContextPlatform(platformParam);
+
+    if (jobIdParam) {
+      void (async () => {
+        const jobRes = await fetchWithAiHeaders(`/api/jobs/${jobIdParam}`);
+        if (!jobRes.ok) {
+          setJdText((prev) =>
+            prev.trim() ? prev : "（来自岗位探索，请补充或粘贴完整 JD）",
+          );
+          return;
+        }
+        const job = (await jobRes.json()) as {
+          title?: string;
+          company?: string;
+          salary?: string | null;
+          jdText?: string;
+        };
+        if (typeof job.title === "string" && job.title.trim()) {
+          setJobTitle(job.title);
+        }
+        if (typeof job.company === "string" && job.company.trim()) {
+          setCompany(job.company);
+        }
+        if (typeof job.salary === "string") {
+          setSalary(job.salary);
+        }
+        if (typeof job.jdText === "string" && job.jdText.trim()) {
+          setJdText(job.jdText);
+        } else {
+          setJdText((prev) =>
+            prev.trim() ? prev : "（来自岗位探索，请补充或粘贴完整 JD）",
+          );
+        }
+      })();
+    } else {
+      setJdText((prev) =>
+        prev.trim() ? prev : "（来自岗位探索，请补充或粘贴完整 JD）",
+      );
+    }
+    setJobContextBanner(true);
+
+    if (
+      searchParams.get("fromExplorer") === "1" &&
+      !readResumeUploadedFromSession()
+    ) {
+      setShowResumeGateModal(true);
+    }
+
+    const next = new URLSearchParams(searchParams.toString());
+    EXPLORER_PARAM_KEYS.forEach((k) => next.delete(k));
+    const rest = next.toString();
+    router.replace(rest ? `/workspace?${rest}` : "/workspace");
+  }, [searchParams, router, applicationIdFromQuery]);
 
   useEffect(() => {
     if (!applicationIdFromQuery) {
@@ -122,7 +224,7 @@ export function HomeBoard() {
         setEditApplicationId(null);
         setJobId(null);
         setEditLoading(false);
-        router.replace("/");
+        router.replace("/workspace");
         return;
       }
       const data = (await res.json()) as ApplicationDetail;
@@ -134,6 +236,8 @@ export function HomeBoard() {
       setSalary(data.job.salary ?? "");
       setJdText(data.job.jdText);
       setResumeMd(data.resume.rawMarkdown);
+      setIsResumeUploaded(true);
+      writeResumeUploadedToSession();
       setEditLoading(false);
     })();
 
@@ -152,6 +256,10 @@ export function HomeBoard() {
     const j = (await r.json()) as { id: string };
     setResumeId(j.id);
     return j.id;
+  }
+
+  function openResumeGate() {
+    setShowResumeGateModal(true);
   }
 
   async function saveAndReturnToWorkspace() {
@@ -195,6 +303,10 @@ export function HomeBoard() {
   }
 
   async function createJobAndApplication() {
+    if (!isResumeUploaded || !resumeMd.trim()) {
+      openResumeGate();
+      return;
+    }
     setLoading(true);
     try {
       const titleTrim = jobTitle.trim();
@@ -246,7 +358,7 @@ export function HomeBoard() {
       return;
     }
     if (editApplicationId === applicationId) {
-      router.replace("/");
+      router.replace("/workspace");
       setEditApplicationId(null);
       setJobId(null);
       setResumeId(null);
@@ -280,6 +392,66 @@ export function HomeBoard() {
       setVisionNotice("截图识别成功，已自动填充岗位信息。");
     } finally {
       setVisionBusy(false);
+    }
+  }
+
+  async function runLocalBossCrawl() {
+    if (!crawlKeyword.trim()) {
+      alert("请填写搜索关键词");
+      return;
+    }
+    setCrawlBusy(true);
+    setCrawlNotice(null);
+    try {
+      const signal =
+        typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
+          ? AbortSignal.timeout(12 * 60_000)
+          : undefined;
+      const res = await fetchWithAiHeaders("/api/crawl/local", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keyword: crawlKeyword.trim(),
+          platform: crawlPlatform,
+          cityCode: crawlCityCode.trim() || "101280600",
+          pages: 3,
+          fetchDetails: crawlFetchDetails,
+          resumeId: crawlResumeAuto ? "auto" : undefined,
+        }),
+        signal,
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        stdout?: string;
+        stderr?: string;
+      };
+      if (res.status === 501) {
+        setCrawlNotice(data.message ?? "该平台尚未接入");
+        return;
+      }
+      if (!res.ok) {
+        setCrawlNotice(
+          data.message ?? data.error ?? `请求失败（HTTP ${res.status}）`,
+        );
+        return;
+      }
+      if (!data.ok) {
+        setCrawlNotice(
+          data.message ?? "爬虫进程异常退出，请查看终端/响应中的 stderr。",
+        );
+        return;
+      }
+      setCrawlNotice(
+        "抓取流程已结束；若已勾选导入，请查看下方投递列表。详细日志见服务器控制台。",
+      );
+      void refresh();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setCrawlNotice(`抓取失败：${msg}`);
+    } finally {
+      setCrawlBusy(false);
     }
   }
 
@@ -324,6 +496,8 @@ export function HomeBoard() {
       }
       if (typeof data.resumeId === "string") setResumeId(data.resumeId);
       setResumeNotice("简历导入成功，已填充到文本框。");
+      setIsResumeUploaded(true);
+      writeResumeUploadedToSession();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setResumeNotice(`导入失败：${msg}`);
@@ -333,17 +507,66 @@ export function HomeBoard() {
     }
   }
 
+  function confirmPastedResume() {
+    if (!resumeMd.trim()) {
+      setResumeNotice("请先粘贴或输入简历内容。");
+      return;
+    }
+    setIsResumeUploaded(true);
+    writeResumeUploadedToSession();
+    setResumeNotice("已确认使用当前简历内容。");
+    setShowPasteResume(false);
+  }
+
   const stepperApplicationId =
     editApplicationId ?? applicationIdFromQuery ?? null;
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
+      <SimpleModal
+        open={showResumeGateModal}
+        title="请先上传简历"
+        onClose={() => setShowResumeGateModal(false)}
+        primaryLabel="我知道了"
+        onPrimary={() => {}}
+      >
+        <p>
+          用于生成个性化投递内容。请在下方「简历」模块上传 PDF
+          或粘贴简历后再继续。
+        </p>
+      </SimpleModal>
+
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">岗位与投递</h1>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              岗位与投递
+            </h1>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/">岗位探索</Link>
+            </Button>
+          </div>
           <p className="text-sm text-muted-foreground">
             左侧维护简历与 JD，一键创建投递并在详情页进行 AI 评分与改写。
           </p>
+          {jobContextBanner && (
+            <Card className="mt-4 border-orange-200/80 bg-orange-50/50 dark:border-orange-900/50 dark:bg-orange-950/20">
+              <CardContent className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-3 text-sm">
+                <span className="font-semibold text-foreground">
+                  当前职位：{jobTitle || "—"}
+                </span>
+                <span className="text-muted-foreground">{company || "—"}</span>
+                <span className="font-medium text-orange-600 dark:text-orange-400">
+                  {salary || "—"}
+                </span>
+                {(contextCity || contextPlatform) && (
+                  <span className="text-xs text-muted-foreground">
+                    {[contextCity, contextPlatform].filter(Boolean).join(" · ")}
+                  </span>
+                )}
+              </CardContent>
+            </Card>
+          )}
           <WorkflowStepper
             className="mt-4"
             activeIndex={0}
@@ -365,20 +588,165 @@ export function HomeBoard() {
             <CardTitle>1. 简历（Markdown）</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            <FileDropzone
-              title="上传/粘贴简历（PDF 或图片）"
-              description="支持 PDF 或图片；可拖拽/选择文件；粘贴图片请聚焦此区域后 Ctrl/Cmd+V。"
-              accept="application/pdf,image/*"
-              disabled={visionBusy || loading}
-              onFile={runResumeImport}
-            />
-            <Textarea
-              value={resumeMd}
-              onChange={(e) => setResumeMd(e.target.value)}
-              className="min-h-[160px] font-mono text-xs"
-            />
+            {isResumeUploaded ? (
+              <>
+                <FileDropzone
+                  title="上传/粘贴简历（PDF 或图片）"
+                  description="支持 PDF 或图片；可拖拽/选择文件；粘贴图片请聚焦此区域后 Ctrl/Cmd+V。"
+                  accept="application/pdf,image/*"
+                  disabled={visionBusy || loading}
+                  onFile={runResumeImport}
+                />
+                <Textarea
+                  value={resumeMd}
+                  onChange={(e) => setResumeMd(e.target.value)}
+                  className="min-h-[160px] font-mono text-xs"
+                />
+              </>
+            ) : (
+              <div className="space-y-4 rounded-lg border border-dashed bg-muted/20 p-6">
+                <p className="text-sm text-muted-foreground">
+                  上传简历后可获得{" "}
+                  <strong className="text-foreground">AI 匹配评分</strong> 和{" "}
+                  <strong className="text-foreground">自动改写能力</strong>。
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    disabled={visionBusy || loading}
+                    onClick={() => pdfInputRef.current?.click()}
+                  >
+                    上传 PDF
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={visionBusy || loading}
+                    onClick={() => setShowPasteResume(true)}
+                  >
+                    粘贴简历
+                  </Button>
+                </div>
+                <input
+                  ref={pdfInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="application/pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) void runResumeImport(file);
+                  }}
+                />
+                {showPasteResume && (
+                  <div className="space-y-2 border-t pt-4">
+                    <Label htmlFor="paste-resume">粘贴为 Markdown</Label>
+                    <Textarea
+                      id="paste-resume"
+                      value={resumeMd}
+                      onChange={(e) => setResumeMd(e.target.value)}
+                      placeholder="在此粘贴简历文本或 Markdown…"
+                      className="min-h-[160px] font-mono text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={confirmPastedResume}
+                    >
+                      确认使用此简历
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
             {resumeNotice && (
               <p className="text-xs text-muted-foreground">{resumeNotice}</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>本地 BOSS 抓取（实验）</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              在本机已登录 BOSS（chrome_profile）且已创建{" "}
+              <code className="rounded bg-muted px-1">
+                tools/boss_zhipin_crawl/.venv
+              </code>{" "}
+              时使用。仅开发环境或设置{" "}
+              <code className="rounded bg-muted px-1">
+                JOBHUNTER_ALLOW_LOCAL_CRAWL=1
+              </code>
+              。
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="crawl-keyword">搜索关键词</Label>
+                <Input
+                  id="crawl-keyword"
+                  placeholder="例如：产品经理"
+                  value={crawlKeyword}
+                  onChange={(e) => setCrawlKeyword(e.target.value)}
+                  disabled={crawlBusy || loading}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="crawl-platform">平台</Label>
+                <select
+                  id="crawl-platform"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={crawlPlatform}
+                  onChange={(e) =>
+                    setCrawlPlatform(e.target.value as "boss" | "other")
+                  }
+                  disabled={crawlBusy || loading}
+                >
+                  <option value="boss">BOSS 直聘</option>
+                  <option value="other">其他（即将支持）</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="crawl-city">城市编码</Label>
+                <Input
+                  id="crawl-city"
+                  placeholder="101280600=深圳"
+                  value={crawlCityCode}
+                  onChange={(e) => setCrawlCityCode(e.target.value)}
+                  disabled={crawlBusy || loading}
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={crawlFetchDetails}
+                  onChange={(e) => setCrawlFetchDetails(e.target.checked)}
+                  disabled={crawlBusy || loading}
+                />
+                抓取详情 JD（裁剪职位描述分节）
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={crawlResumeAuto}
+                  onChange={(e) => setCrawlResumeAuto(e.target.checked)}
+                  disabled={crawlBusy || loading}
+                />
+                导入并创建投递（resumeId=auto）
+              </label>
+            </div>
+            <Button
+              type="button"
+              onClick={() => void runLocalBossCrawl()}
+              disabled={crawlBusy || loading || visionBusy}
+            >
+              {crawlBusy ? "抓取中（可能数分钟）…" : "开始抓取并导入"}
+            </Button>
+            {crawlNotice && (
+              <p className="text-xs text-muted-foreground">{crawlNotice}</p>
             )}
           </CardContent>
         </Card>

@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { fetchWithAiHeaders } from "@/lib/client/fetch-with-ai";
 import { WorkflowStepper } from "@/components/workflow-stepper";
+import { SimpleModal } from "@/components/ui/simple-modal";
 import {
   buildWorkspaceDocumentTitle,
   defaultDocumentTitle,
@@ -63,6 +64,7 @@ export function ApplicationWorkspace({ id }: { id: string }) {
   const [cover, setCover] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [resumeGateOpen, setResumeGateOpen] = useState(false);
 
   function parseJsonSafely(raw: string): unknown {
     if (!raw.trim()) return null;
@@ -156,6 +158,14 @@ export function ApplicationWorkspace({ id }: { id: string }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  function requireResumeForAi(run: () => void) {
+    if (!resumeText.trim()) {
+      setResumeGateOpen(true);
+      return;
+    }
+    run();
   }
 
   async function runScore() {
@@ -259,16 +269,23 @@ export function ApplicationWorkspace({ id }: { id: string }) {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="outline" size="sm" asChild>
-              <Link href="/">返回列表</Link>
+              <Link href="/">返回探索</Link>
             </Button>
             <Button variant="secondary" size="sm" asChild>
-              <Link href={`/?applicationId=${encodeURIComponent(id)}`}>
+              <Link href={`/workspace?applicationId=${encodeURIComponent(id)}`}>
                 上一步：编辑简历与 JD
               </Link>
             </Button>
-            <span className="font-medium">
-              {data.job.title} · {data.job.company}
-            </span>
+            <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
+              <span className="font-medium">
+                {data.job.title} · {data.job.company}
+              </span>
+              {data.job.salary && (
+                <span className="text-base font-semibold text-orange-600 dark:text-orange-400">
+                  {data.job.salary}
+                </span>
+              )}
+            </div>
             <Badge variant="secondary">
               {statusLabel[data.status] ?? data.status}
             </Badge>
@@ -326,6 +343,19 @@ export function ApplicationWorkspace({ id }: { id: string }) {
           finishComplete={finishComplete}
         />
       </header>
+
+      <SimpleModal
+        open={resumeGateOpen}
+        title="请先上传简历"
+        onClose={() => setResumeGateOpen(false)}
+        primaryLabel="我知道了"
+        onPrimary={() => {}}
+      >
+        <p>
+          用于生成个性化投递内容。请返回上一步在「简历」模块上传或粘贴简历后再使用
+          AI 功能。
+        </p>
+      </SimpleModal>
 
       {err && (
         <div className="bg-destructive/10 px-6 py-2 text-sm text-destructive">
@@ -406,13 +436,17 @@ export function ApplicationWorkspace({ id }: { id: string }) {
         <aside className="bg-muted/10 p-4">
           <h2 className="mb-3 text-sm font-semibold">AI 分析</h2>
           <div className="space-y-3">
-            <Button className="w-full" onClick={runScore} disabled={busy}>
+            <Button
+              className="w-full"
+              onClick={() => requireResumeForAi(() => void runScore())}
+              disabled={busy}
+            >
               AI 匹配评分
             </Button>
             <Button
               className="w-full"
               variant="secondary"
-              onClick={runTailor}
+              onClick={() => requireResumeForAi(() => void runTailor())}
               disabled={busy}
             >
               简历定制（STAR）

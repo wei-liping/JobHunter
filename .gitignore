@@ -41,3 +41,8 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# BOSS DrissionPage crawl (local Chrome profile + login cookies)
+tools/boss_zhipin_crawl/chrome_profile/
+tools/boss_zhipin_crawl/.venv/
+tools/boss_zhipin_crawl/boss_out/
