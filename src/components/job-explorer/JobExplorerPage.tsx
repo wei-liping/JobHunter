@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -222,11 +222,7 @@ export function JobExplorerPage() {
     router.push(buildWorkspaceHref({ ...job, id: resolvedId }));
   }
 
-  useEffect(() => {
-    void loadJobs();
-  }, []);
-
-  async function loadJobs(opts?: { silent?: boolean }) {
+  const loadJobs = useCallback(async (opts?: { silent?: boolean }) => {
     const res = await fetchWithAiHeaders("/api/jobs");
     if (!res.ok) {
       if (!opts?.silent) {
@@ -236,12 +232,15 @@ export function JobExplorerPage() {
     }
     const raw = (await res.json()) as JobsApiItem[];
     const mapped = raw.map(mapJobFromApi);
-    const currentQuery = filters.query.trim().toLowerCase();
     setJobs(mapped);
     return mapped.length;
-  }
+  }, []);
 
-  function stopPolling(reason?: string) {
+  useEffect(() => {
+    void loadJobs();
+  }, [loadJobs]);
+
+  function stopPolling() {
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
@@ -316,7 +315,7 @@ export function JobExplorerPage() {
   }
 
   function startPolling(initialCount: number) {
-    stopPolling("restart");
+    stopPolling();
     setPolling(true);
     setPollCount(0);
     setLastJobsCount(initialCount);
@@ -346,7 +345,7 @@ export function JobExplorerPage() {
             setNotice("抓取时间较长，仍在后台抓取，列表会继续自动刷新...");
           }
           if (elapsedMs > 600_000) {
-            stopPolling("hard_timeout");
+            stopPolling();
             setLoading(false);
             setNotice("抓取超时（10分钟），已停止自动刷新。可重试搜索。");
           }
@@ -391,17 +390,17 @@ export function JobExplorerPage() {
         });
         const body = (await res.json()) as { message?: string; error?: string };
         if (!res.ok) {
-          stopPolling("crawl_non_ok");
+          stopPolling();
           setNotice(
             body.message ?? body.error ?? `搜索失败（HTTP ${res.status}）`,
           );
           return;
         }
         await loadJobs({ silent: true });
-        stopPolling("crawl_ok");
+        stopPolling();
         setNotice("搜索完成（轮询模式），已更新岗位列表。");
       } catch (error: unknown) {
-        stopPolling("crawl_exception");
+        stopPolling();
         const msg = error instanceof Error ? error.message : String(error);
         setNotice(`搜索失败：${msg}`);
       } finally {

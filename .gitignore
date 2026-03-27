@@ -20,6 +20,15 @@
 .DS_Store
 *.pem
 /uploads
+__pycache__/
+*.pyc
+contact.txt
+cv.jpg
+cv_infor/
+resume-template/CV.pdf
+resume-template/CV.jpg
+resume-template/avatar.jpg
+resume-template/zju.png
 
 # debug
 npm-debug.log*

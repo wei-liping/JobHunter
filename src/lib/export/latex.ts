@@ -6,13 +6,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-/** Display name for PDF header (template export). */
-export const RESUME_DISPLAY_NAME = "韦莉萍";
-
-const CV_INFO_DIR = "cv_infor";
-const CONTACT_FILE = "contact.txt";
-const PHOTO_FILE = "cv.jpg";
-const FALLBACK_AVATAR = "avatar.jpg";
+const DEFAULT_RESUME_DISPLAY_NAME = "Candidate";
 
 /**
  * Escape text for LaTeX (outside \textbf/\href args that need special handling).
@@ -57,16 +51,40 @@ function processInlineMarkdown(segment: string): string {
   return t;
 }
 
-function parseContactLine(raw: string): { phone: string; email: string } {
-  const line = raw.trim().split(/\r?\n/)[0] ?? "";
-  const parts = line.split("|").map((p) => p.trim());
-  if (parts.length >= 2) {
-    return { phone: parts[0] ?? "", email: parts[1] ?? "" };
+function extractResumeHeader(markdown: string): {
+  displayName: string;
+  contact: { phone: string; email: string };
+} {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  let displayName = DEFAULT_RESUME_DISPLAY_NAME;
+  const scanLines: string[] = [];
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith("# ")) {
+      const heading = line.replace(/^#\s+/, "").trim();
+      if (heading) displayName = heading;
+      continue;
+    }
+    if (line.startsWith("## ")) break;
+    scanLines.push(line);
+    if (scanLines.length >= 4) break;
   }
-  if (line.includes("@")) {
-    return { phone: "", email: line };
-  }
-  return { phone: line, email: "" };
+
+  const joined = scanLines.join(" | ");
+  const emailMatch = joined.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  const phoneMatch = joined.match(
+    /(?:\+?\d[\d\s-]{6,}\d|\d{3,4}-\d{7,8}|\d{11})/,
+  );
+
+  return {
+    displayName,
+    contact: {
+      phone: phoneMatch?.[0]?.trim() ?? "",
+      email: emailMatch?.[0]?.trim() ?? "",
+    },
+  };
 }
 
 /**
@@ -136,48 +154,6 @@ export function markdownToLatexBody(markdown: string): string {
   return out.join("\n");
 }
 
-async function loadContact(
-  workspaceRoot: string,
-): Promise<{ phone: string; email: string }> {
-  const candidates = [
-    path.join(workspaceRoot, CV_INFO_DIR, CONTACT_FILE),
-    path.join(workspaceRoot, "resume-template", CONTACT_FILE),
-  ];
-  for (const p of candidates) {
-    try {
-      const raw = await fs.readFile(p, "utf8");
-      return parseContactLine(raw);
-    } catch {
-      // try next candidate
-    }
-  }
-  return { phone: "", email: "" };
-}
-
-async function copyPhotoToTemp(
-  workspaceRoot: string,
-  tempDir: string,
-): Promise<string> {
-  const dest = path.join(tempDir, FALLBACK_AVATAR);
-  const candidates = [
-    path.join(workspaceRoot, CV_INFO_DIR, PHOTO_FILE),
-    path.join(workspaceRoot, CV_INFO_DIR, "CV.jpg"),
-    path.join(workspaceRoot, CV_INFO_DIR, "avatar.jpg"),
-    path.join(workspaceRoot, "resume-template", "CV.jpg"),
-    path.join(workspaceRoot, "resume-template", FALLBACK_AVATAR),
-  ];
-
-  for (const src of candidates) {
-    try {
-      await fs.copyFile(src, dest);
-      return FALLBACK_AVATAR;
-    } catch {
-      // try next candidate
-    }
-  }
-  return FALLBACK_AVATAR;
-}
-
 /** Preamble through \\begin{document} + \\pagenumbering (from template, without sample body). */
 function buildPreambleFromTemplate(templateTex: string): string {
   const docIdx = templateTex.indexOf("\\begin{document}");
@@ -190,7 +166,6 @@ function buildPreambleFromTemplate(templateTex: string): string {
 function buildHeaderBlock(
   displayName: string,
   contact: { phone: string; email: string },
-  avatarFile: string,
 ): string {
   const contactParts: string[] = [];
   if (contact.phone) contactParts.push(`Tel: ${latexEscape(contact.phone)}`);
@@ -204,10 +179,10 @@ function buildHeaderBlock(
   return `
 \\pagenumbering{gobble}
 
-%%%% Stable plain-flow header (avoid viewer-dependent centerline/tikz behavior)
+%%%% Stable plain-flow header
 \\noindent{\\LARGE\\bfseries ${latexEscape(displayName)}}\\\\[0.3em]
 ${contactLine ? `\\noindent{\\normalsize ${contactLine}}\\\\[0.6em]` : ""}
-\\noindent\\includegraphics[height=2.4cm]{${avatarFile}}\\\\[0.8em]
+\\vspace{0.3em}
 `;
 }
 
@@ -220,16 +195,15 @@ export async function buildResumePdfWithTemplate(
   const templateTex = await fs.readFile(templatePath, "utf8");
 
   const preamble = buildPreambleFromTemplate(templateTex);
-  const contact = await loadContact(workspaceRoot);
+  const { displayName, contact } = extractResumeHeader(markdown);
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "jobhunter-latex-"));
 
   try {
     await fs.cp(templateDir, tempDir, { recursive: true });
-    const avatarFile = await copyPhotoToTemp(workspaceRoot, tempDir);
 
     const bodyLatex = markdownToLatexBody(markdown);
-    const header = buildHeaderBlock(RESUME_DISPLAY_NAME, contact, avatarFile);
+    const header = buildHeaderBlock(displayName, contact);
 
     const fullDoc = `${preamble}
 ${header}

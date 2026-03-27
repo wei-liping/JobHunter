@@ -1,99 +1,111 @@
-# JobHunter AI（MVP）
+# JobHunter AI
 
-Next.js 14 + Tailwind + shadcn/ui + Prisma + PostgreSQL + Playwright（可选）+ OpenAI 兼容 API 的求职自动化工作台：职位截图识别、AI 匹配分、STAR 简历定制、开场白、ATS 式状态、导出 PDF/Word。
+JobHunter AI 是一个面向真实求职流程的 AI 工作台。它把「岗位信息进入系统 → 匹配判断 → 简历定制 → 开场白生成 → 导出投递材料」串成一条连续链路，减少在截图、文档、聊天窗口和表格之间反复切换。
 
-## 项目结构
+## 这项目解决什么问题
 
-```
-JobHunter/
-├── prisma/
-│   └── schema.prisma          # Job / Resume / Application / Score
-├── src/
-│   ├── app/
-│   │   ├── api/               # Route Handlers（REST）
-│   │   ├── applications/[id]/ # 三栏工作台页面
-│   │   ├── layout.tsx
-│   │   └── page.tsx           # 首页：创建投递 + 列表
-│   ├── components/            # UI（shadcn 风格）
-│   ├── generated/prisma/      # prisma generate 输出（勿手改）
-│   ├── lib/
-│   │   ├── ai/                # OpenAI 调用与业务封装
-│   │   ├── crawler/           # Playwright 抓取 + 登录态预留
-│   │   ├── crawl/             # 本地 BOSS 爬虫 URL / 可执行路径解析
-│   │   ├── export/            # PDF / Word
-│   │   └── prisma.ts          # Prisma 单例（Pg 适配器）
-│   └── prompts/               # 全部 LLM 提示词（独立文件）
-├── docker-compose.yml         # 本地 PostgreSQL
-├── prisma.config.ts           # Prisma 7 数据源配置
-└── .env.example
-```
+常见求职流程里，岗位信息、原始简历、改写版本、开场白和投递状态往往分散在不同工具里。JobHunter AI 的目标不是只做一个单点生成器，而是把这些动作放进同一套工作台里，帮助用户更快完成一次完整投递。
+
+## 核心能力
+
+- 职位截图识别，提取结构化岗位信息
+- AI 匹配评分，输出命中项、缺失项和弱项总结
+- 基于目标岗位改写简历，生成结构化 Markdown
+- 生成中文开场白，适配直接沟通场景
+- 管理投递状态，保留岗位、简历和投递记录
+- 导出 PDF、Word、Markdown
+
+## 主流程
+
+1. 录入岗位：支持手动填写、截图识别，或本地实验抓取
+2. 进入工作台：关联岗位与原始简历
+3. 运行 AI：拿到匹配分、定制简历和开场白
+4. 审阅后导出：输出可投递的最终材料
+
+## 界面预览
+
+### 1. 岗位探索与投递入口
+
+![岗位探索首页](workflow_example_images/public/1首页-公开版.png)
+
+### 2. 准备材料：上传简历并整理岗位信息
+
+![准备材料页](workflow_example_images/public/2准备材料-公开版.png)
+
+### 3. 智能工作台：评估、润色与导出
+
+![简历评估与润色](workflow_example_images/public/3A简历评估与润色-公开版.jpg)
+
+![简历润色与开场白](workflow_example_images/public/3B简历润色与开场白-公开版.jpg)
+
+## 技术概览
+
+- Next.js 14
+- Tailwind + shadcn/ui
+- Prisma + PostgreSQL
+- OpenAI 兼容 API
+- Playwright / 本地爬虫（可选）
+
+## 本地运行
+
+1. 安装依赖
+
+   ```bash
+   npm install
+   ```
+
+2. 复制环境变量
+
+   ```bash
+   cp .env.example .env
+   ```
+
+3. 启动数据库
+
+   ```bash
+   docker compose up -d
+   ```
+
+4. 初始化数据库
+
+   ```bash
+   npm run db:push
+   ```
+
+5. 启动开发服务
+
+   ```bash
+   npm run dev
+   ```
+
+6. 如需使用网页抓取，再安装 Playwright 浏览器
+
+   ```bash
+   npx playwright install chromium
+   ```
+
+浏览器打开 [http://localhost:3000](http://localhost:3000)。
 
 ## 环境变量
 
 复制 `.env.example` 为 `.env`，填写：
 
 - `DATABASE_URL` — PostgreSQL 连接串
-- `OPENAI_API_KEY` — OpenAI 或兼容服务（如 DeepSeek）的 Key
-- 可选 `OPENAI_BASE_URL`（例如 DeepSeek：`https://api.deepseek.com/v1`）
-- 可选 `OPENAI_MODEL`（默认 `gpt-4o-mini`）
-- `ALLOWED_AI_BASE_URLS` — 允许的 AI Base URL 白名单（逗号分隔）
-- 可选 `JOBHUNTER_ADMIN_TOKEN` — 保护 `/api/ai/ping` 和飞书集成接口
-- 可选 `JOBHUNTER_ALLOW_LOCAL_CRAWL=1` — 非 `development` 时仍允许 `POST /api/crawl/local`（默认仅 dev 可用）
+- `OPENAI_API_KEY` — OpenAI 或兼容服务的 Key
+- 可选 `OPENAI_BASE_URL`
+- 可选 `OPENAI_MODEL`
+- `ALLOWED_AI_BASE_URLS` — 允许的 Base URL 白名单
+- 可选 `JOBHUNTER_ADMIN_TOKEN` — 保护 AI 连通性测试和飞书集成接口
+- 可选 `JOBHUNTER_ALLOW_LOCAL_CRAWL=1` — 非 `development` 时仍允许本地抓取
 - 可选 `JOBHUNTER_CRAWL_PYTHON` — 覆盖本地爬虫使用的 Python 可执行文件路径
 - 可选飞书同步层：`FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_BITABLE_APP_TOKEN`、`FEISHU_BITABLE_TABLE_ID`、`FEISHU_BOT_WEBHOOK`
 
 ### 前端 API 设置（本地存储）
 
-- 页面右上角支持「API 设置」弹窗，填写 `API Key / Base URL / 模型`。
-- 配置保存在浏览器 `localStorage`，并在请求时通过请求头透传：
-  - `x-openai-key`
-  - `x-openai-base-url`
-  - `x-openai-model`
-- 后端读取顺序：请求头优先，`.env` 兜底。
-- 当使用请求头配置时，`x-openai-key` 必填；`x-openai-base-url` 需命中 `ALLOWED_AI_BASE_URLS`。
-- 安全提示：该方式适合本地单用户调试，不建议在公共终端使用。
-
-## 本地运行
-
-1. **安装依赖**
-
-   ```bash
-   npm install
-   ```
-
-2. **安装 Playwright 浏览器（仅在使用「抓取填充」时需要）**
-
-   ```bash
-   npx playwright install chromium
-   ```
-
-3. **启动数据库**
-
-   ```bash
-   docker compose up -d
-   ```
-
-   若无 Docker，请自备 PostgreSQL 并修改 `DATABASE_URL`。
-
-4. **迁移数据库**
-
-   ```bash
-   npx prisma migrate dev --name init
-   ```
-
-   或开发阶段快速同步：
-
-   ```bash
-   npm run db:push
-   ```
-
-5. **启动开发服务**
-
-   ```bash
-   npm run dev
-   ```
-
-   浏览器打开 [http://localhost:3000](http://localhost:3000)。
+- 页面右上角支持「API 设置」弹窗，可单独填写 `API Key / Base URL / 模型`
+- 配置保存在浏览器 `localStorage`，并在请求时通过请求头透传
+- 后端读取顺序：请求头优先，`.env` 兜底
+- 该方式适合本地单用户调试，不建议在公共终端使用
 
 ## 核心 API
 
@@ -126,10 +138,10 @@ JobHunter/
 
 ## 说明
 
-- **PDF 导出**：若存在 `resume-template/`（含 `CV.tex`、字体与 `fontawesomesymbols-*.tex`）且机器已安装 `xelatex`，则用模板生成 PDF（正文为简历 Markdown，不含模板内示例；不显示 `zju.png`）。抬头姓名见代码里 `RESUME_DISPLAY_NAME`（默认「韦莉萍」）；联系方式读取 `cv_infor/contact.txt`（推荐一行：`电话 | 邮箱`）；头像优先使用 `cv_infor/cv.jpg`（复制为 `avatar.jpg` 参与编译），否则使用模板自带 `avatar.jpg`。若 LaTeX 失败则回退 jsPDF；响应头 `X-Resume-Export-Mode` 为 `xelatex-template` 或 `jspdf-fallback`；调试时可在 URL 加 `?debug=1`，失败时返回 JSON 错误而非 PDF。
+- **PDF 导出**：若存在 `resume-template/` 且机器已安装 `xelatex`，系统会优先使用 LaTeX 模板导出；抬头姓名和联系方式会尽量从简历 Markdown 顶部提取，提取不到时使用通用占位。若 LaTeX 失败则回退到 jsPDF。响应头 `X-Resume-Export-Mode` 为 `xelatex-template` 或 `jspdf-fallback`；调试时可在 URL 加 `?debug=1`，失败时返回 JSON 错误而非 PDF。
 - **截图识别（Vision）**：需要在「API 设置」里选择支持图片输入的模型；不同供应商模型命名不同，若不支持会返回友好错误。
 - **简历导入**：PDF 若为扫描件可能无法解析出文本，请改用图片上传（走 Vision）或先做 OCR。
-- **爬虫（可选）**：各平台 DOM 与登录策略变化快，且常受反爬影响；当前主流程推荐用截图识别替代。BOSS 实验爬虫（DrissionPage）见 [tools/boss_zhipin_crawl/README.md](tools/boss_zhipin_crawl/README.md)：列表 `joblist`、详情页**按「职位描述」等分节裁剪 JD**、可选导入与 `resumeId=auto`。**首页**「本地 BOSS 抓取」会调用 `POST /api/crawl/local`（本机 Chrome 需已登录、`tools/boss_zhipin_crawl/.venv` 已安装依赖）；仅 `development` 或 `JOBHUNTER_ALLOW_LOCAL_CRAWL=1`。平台选「其他」时接口返回未实现。请自用低频并自行遵守平台条款。**抓取节奏**可在 `.env` 中配置 `JOBHUNTER_CRAWL_LIST_SLEEP`、`JOBHUNTER_CRAWL_DETAIL_SLEEP`、`JOBHUNTER_CRAWL_DETAIL_DOM_WAIT`、`JOBHUNTER_CRAWL_DETAIL_LISTEN_TIMEOUT`（见 `.env.example`）；建议先只调前两项观察验证码/空白页，再视情况调 DOM 等待与监听超时。`GET /api/crawl/local/stream` 的 `start` 事件会回显本次解析后的 timing；也可在 SSE query / `POST` body 中传入同名可选字段覆盖环境变量。
+- **抓取（可选）**：各平台 DOM 与登录策略变化快，且常受反爬影响；当前主流程推荐用截图识别替代。BOSS 本地实验抓取见 [tools/boss_zhipin_crawl/README.md](tools/boss_zhipin_crawl/README.md)，仅 `development` 或 `JOBHUNTER_ALLOW_LOCAL_CRAWL=1` 下可用。请自用低频并自行遵守平台条款。
 - **飞书定位**：飞书仅作为同步层（看板、通知、轻报表），主数据仍以 PostgreSQL 为准。
 
 ## Resume LaTeX Export Workflow (Skill Spec)
