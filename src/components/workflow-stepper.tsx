@@ -31,8 +31,8 @@ export function WorkflowStepper({
       {WORKFLOW_STEPS.map((step, index) => {
         const stepCompleted =
           index < activeIndex || (index === 2 && finishComplete);
-        const isCurrent = index === activeIndex && index < 2;
-        const showCheck = stepCompleted;
+        const isCurrent = index === activeIndex;
+        const showCheck = stepCompleted && !isCurrent;
 
         const step1Href = applicationId
           ? `/workspace?applicationId=${encodeURIComponent(applicationId)}`
@@ -41,15 +41,17 @@ export function WorkflowStepper({
           ? `/applications/${applicationId}`
           : null;
 
+        const connectorTinted = index > 0 && index - 1 < activeIndex;
+
         const inner = (
           <>
             <span
               className={cn(
                 "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors",
-                stepCompleted &&
-                  "border-primary bg-primary text-primary-foreground",
                 isCurrent &&
-                  "border-primary bg-primary text-primary-foreground ring-2 ring-primary/25",
+                  "border-primary-foreground/35 bg-primary-foreground/15 text-primary-foreground",
+                showCheck &&
+                  "border-primary/30 bg-primary/12 text-primary dark:bg-primary/20",
                 !stepCompleted &&
                   !isCurrent &&
                   "border-muted-foreground/25 bg-muted/40 text-muted-foreground",
@@ -71,22 +73,27 @@ export function WorkflowStepper({
         );
 
         const wrapClass = cn(
-          "flex items-center gap-2 rounded-full px-2 py-1.5 transition-colors",
-          isCurrent && "bg-primary text-primary-foreground shadow-sm",
-          !isCurrent && stepCompleted && "text-foreground",
-          !stepCompleted && !isCurrent && "text-muted-foreground opacity-80",
+          "flex items-center gap-2 rounded-full px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          isCurrent &&
+            "bg-primary px-3 py-2 text-primary-foreground shadow-sm hover:bg-primary/90",
+          showCheck && "text-primary hover:bg-muted",
+          !stepCompleted && !isCurrent && "text-muted-foreground opacity-90",
         );
+
+        const linkExtra =
+          !isCurrent &&
+          !stepCompleted &&
+          (index === 0 || (index === 1 && step2Href))
+            ? "hover:bg-muted/70"
+            : undefined;
 
         let body: ReactNode;
         if (index === 0) {
           body = (
             <Link
               href={step1Href}
-              className={cn(
-                wrapClass,
-                "hover:bg-muted/80",
-                isCurrent && "hover:bg-primary/90",
-              )}
+              className={cn(wrapClass, linkExtra)}
+              aria-current={isCurrent ? "step" : undefined}
             >
               {inner}
             </Link>
@@ -95,26 +102,40 @@ export function WorkflowStepper({
           body = (
             <Link
               href={step2Href}
-              className={cn(
-                wrapClass,
-                "hover:bg-muted/80",
-                isCurrent && "hover:bg-primary/90",
-              )}
+              className={cn(wrapClass, linkExtra)}
+              aria-current={isCurrent ? "step" : undefined}
             >
               {inner}
             </Link>
           );
         } else if (index === 1 && !step2Href) {
-          body = <div className={wrapClass}>{inner}</div>;
+          body = (
+            <div
+              className={wrapClass}
+              aria-current={isCurrent ? "step" : undefined}
+            >
+              {inner}
+            </div>
+          );
         } else {
-          body = <div className={wrapClass}>{inner}</div>;
+          body = (
+            <div
+              className={wrapClass}
+              aria-current={isCurrent ? "step" : undefined}
+            >
+              {inner}
+            </div>
+          );
         }
 
         return (
           <div key={step.id} className="flex items-center">
             {index > 0 && (
               <div
-                className="mx-1 hidden h-px w-6 bg-border sm:mx-2 sm:block sm:w-10"
+                className={cn(
+                  "mx-1 hidden h-px w-6 sm:mx-2 sm:block sm:w-10",
+                  connectorTinted ? "bg-primary/25" : "bg-border",
+                )}
                 aria-hidden
               />
             )}

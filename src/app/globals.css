@@ -7,8 +7,9 @@
   --foreground: 0 0% 9%;
   --card: 0 0% 100%;
   --card-foreground: 0 0% 9%;
-  --primary: 0 0% 9%;
-  --primary-foreground: 0 0% 98%;
+  /* 主操作按钮：蓝色填充 */
+  --primary: 221 83% 53%;
+  --primary-foreground: 210 40% 98%;
   --secondary: 0 0% 96%;
   --secondary-foreground: 0 0% 9%;
   --muted: 0 0% 96%;
@@ -19,7 +20,7 @@
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 90%;
   --input: 0 0% 90%;
-  --ring: 0 0% 9%;
+  --ring: 221 83% 53%;
   --radius: 0.5rem;
 }
 

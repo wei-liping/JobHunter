@@ -129,7 +129,7 @@ JobHunter/
 - **PDF 导出**：若存在 `resume-template/`（含 `CV.tex`、字体与 `fontawesomesymbols-*.tex`）且机器已安装 `xelatex`，则用模板生成 PDF（正文为简历 Markdown，不含模板内示例；不显示 `zju.png`）。抬头姓名见代码里 `RESUME_DISPLAY_NAME`（默认「韦莉萍」）；联系方式读取 `cv_infor/contact.txt`（推荐一行：`电话 | 邮箱`）；头像优先使用 `cv_infor/cv.jpg`（复制为 `avatar.jpg` 参与编译），否则使用模板自带 `avatar.jpg`。若 LaTeX 失败则回退 jsPDF；响应头 `X-Resume-Export-Mode` 为 `xelatex-template` 或 `jspdf-fallback`；调试时可在 URL 加 `?debug=1`，失败时返回 JSON 错误而非 PDF。
 - **截图识别（Vision）**：需要在「API 设置」里选择支持图片输入的模型；不同供应商模型命名不同，若不支持会返回友好错误。
 - **简历导入**：PDF 若为扫描件可能无法解析出文本，请改用图片上传（走 Vision）或先做 OCR。
-- **爬虫（可选）**：各平台 DOM 与登录策略变化快，且常受反爬影响；当前主流程推荐用截图识别替代。BOSS 实验爬虫（DrissionPage）见 [tools/boss_zhipin_crawl/README.md](tools/boss_zhipin_crawl/README.md)：列表 `joblist`、详情页**按「职位描述」等分节裁剪 JD**、可选导入与 `resumeId=auto`。**首页**「本地 BOSS 抓取」会调用 `POST /api/crawl/local`（本机 Chrome 需已登录、`tools/boss_zhipin_crawl/.venv` 已安装依赖）；仅 `development` 或 `JOBHUNTER_ALLOW_LOCAL_CRAWL=1`。平台选「其他」时接口返回未实现。请自用低频并自行遵守平台条款。
+- **爬虫（可选）**：各平台 DOM 与登录策略变化快，且常受反爬影响；当前主流程推荐用截图识别替代。BOSS 实验爬虫（DrissionPage）见 [tools/boss_zhipin_crawl/README.md](tools/boss_zhipin_crawl/README.md)：列表 `joblist`、详情页**按「职位描述」等分节裁剪 JD**、可选导入与 `resumeId=auto`。**首页**「本地 BOSS 抓取」会调用 `POST /api/crawl/local`（本机 Chrome 需已登录、`tools/boss_zhipin_crawl/.venv` 已安装依赖）；仅 `development` 或 `JOBHUNTER_ALLOW_LOCAL_CRAWL=1`。平台选「其他」时接口返回未实现。请自用低频并自行遵守平台条款。**抓取节奏**可在 `.env` 中配置 `JOBHUNTER_CRAWL_LIST_SLEEP`、`JOBHUNTER_CRAWL_DETAIL_SLEEP`、`JOBHUNTER_CRAWL_DETAIL_DOM_WAIT`、`JOBHUNTER_CRAWL_DETAIL_LISTEN_TIMEOUT`（见 `.env.example`）；建议先只调前两项观察验证码/空白页，再视情况调 DOM 等待与监听超时。`GET /api/crawl/local/stream` 的 `start` 事件会回显本次解析后的 timing；也可在 SSE query / `POST` body 中传入同名可选字段覆盖环境变量。
 - **飞书定位**：飞书仅作为同步层（看板、通知、轻报表），主数据仍以 PostgreSQL 为准。
 
 ## Resume LaTeX Export Workflow (Skill Spec)

@@ -37,9 +37,25 @@ export function JobCard({ job, className, onEnterPanel }: Props) {
               {job.platform}
             </Badge>
           </div>
-          <p className="text-base font-bold leading-tight text-foreground">
-            {job.title}
-          </p>
+          <div className="space-y-1">
+            <p className="text-base font-bold leading-tight text-foreground">
+              {job.title}
+            </p>
+            {job.url &&
+              /^https?:\/\//i.test(job.url) &&
+              (job.platform === "BOSS直聘" ||
+                job.url.includes("zhipin.com")) && (
+                <a
+                  href={job.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  打开 BOSS 详情页
+                </a>
+              )}
+          </div>
           <p className="text-xs text-muted-foreground">{job.city}</p>
           <div className="flex flex-wrap gap-2 pt-1 text-xs text-muted-foreground">
             <span className="rounded-md bg-muted px-2 py-0.5">
@@ -51,7 +67,9 @@ export function JobCard({ job, className, onEnterPanel }: Props) {
           </div>
           <p className="pt-1 text-xs text-muted-foreground">
             AI 评分：
-            <span className="font-medium text-foreground">{job.score}</span>{" "}
+            <span className="font-medium text-foreground">
+              {job.score}
+            </span>{" "}
             分（占位）
           </p>
         </div>
@@ -63,6 +81,7 @@ export function JobCard({ job, className, onEnterPanel }: Props) {
         </p>
         <Button
           type="button"
+          variant="default"
           className="sm:min-w-[10rem]"
           onClick={() => onEnterPanel(job)}
         >

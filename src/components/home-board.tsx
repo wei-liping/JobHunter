@@ -1,7 +1,13 @@
 "use client";
 
 import type { MouseEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Trash2 } from "lucide-react";
@@ -18,6 +24,11 @@ import { FileDropzone } from "@/components/file-dropzone";
 import { WorkflowStepper } from "@/components/workflow-stepper";
 import { SimpleModal } from "@/components/ui/simple-modal";
 import {
+  loadDefaultResumeMarkdown,
+  saveDefaultResumeMarkdown,
+} from "@/lib/client/default-resume-markdown";
+import {
+  clearResumeUploadedFromSession,
   readResumeUploadedFromSession,
   writeResumeUploadedToSession,
 } from "@/lib/client/resume-session";
@@ -29,7 +40,12 @@ import {
 type ApplicationListItem = {
   id: string;
   status: string;
-  job: { title: string; company: string; salary: string | null };
+  job: {
+    title: string;
+    company: string;
+    salary: string | null;
+    url: string | null;
+  };
   resume: { title: string };
   scores: { matchScore: number }[];
 };
@@ -92,20 +108,13 @@ export function HomeBoard() {
   const resumeImportInFlight = useRef(false);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [crawlKeyword, setCrawlKeyword] = useState("");
-  const [crawlPlatform, setCrawlPlatform] = useState<"boss" | "other">("boss");
-  const [crawlCityCode, setCrawlCityCode] = useState("101280600");
-  const [crawlFetchDetails, setCrawlFetchDetails] = useState(true);
-  const [crawlResumeAuto, setCrawlResumeAuto] = useState(false);
-  const [crawlBusy, setCrawlBusy] = useState(false);
-  const [crawlNotice, setCrawlNotice] = useState<string | null>(null);
-
   const [isResumeUploaded, setIsResumeUploaded] = useState(false);
   const [showPasteResume, setShowPasteResume] = useState(false);
   const [showResumeGateModal, setShowResumeGateModal] = useState(false);
   const [jobContextBanner, setJobContextBanner] = useState(false);
   const [contextCity, setContextCity] = useState<string | null>(null);
   const [contextPlatform, setContextPlatform] = useState<string | null>(null);
+  const [contextJobUrl, setContextJobUrl] = useState<string | null>(null);
 
   const isEditMode = Boolean(editApplicationId && jobId && resumeId);
 
@@ -125,9 +134,27 @@ export function HomeBoard() {
     };
   }, []);
 
+  /** 无 applicationId 时从本机预填默认简历；useLayoutEffect 避免与 debounce 竞态把服务器内容误写入 localStorage */
+  useLayoutEffect(() => {
+    if (applicationIdFromQuery) return;
+    const saved = loadDefaultResumeMarkdown();
+    setResumeMd(saved);
+    if (saved.trim()) {
+      setIsResumeUploaded(true);
+      writeResumeUploadedToSession();
+    } else {
+      setIsResumeUploaded(false);
+      clearResumeUploadedFromSession();
+    }
+  }, [applicationIdFromQuery]);
+
   useEffect(() => {
-    setIsResumeUploaded(readResumeUploadedFromSession());
-  }, []);
+    if (applicationIdFromQuery) return;
+    const t = window.setTimeout(() => {
+      saveDefaultResumeMarkdown(resumeMd);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [resumeMd, applicationIdFromQuery]);
 
   useEffect(() => {
     if (applicationIdFromQuery) return;
@@ -150,6 +177,7 @@ export function HomeBoard() {
       void (async () => {
         const jobRes = await fetchWithAiHeaders(`/api/jobs/${jobIdParam}`);
         if (!jobRes.ok) {
+          setContextJobUrl(null);
           setJdText((prev) =>
             prev.trim() ? prev : "（来自岗位探索，请补充或粘贴完整 JD）",
           );
@@ -160,6 +188,7 @@ export function HomeBoard() {
           company?: string;
           salary?: string | null;
           jdText?: string;
+          url?: string | null;
         };
         if (typeof job.title === "string" && job.title.trim()) {
           setJobTitle(job.title);
@@ -170,6 +199,9 @@ export function HomeBoard() {
         if (typeof job.salary === "string") {
           setSalary(job.salary);
         }
+        setContextJobUrl(
+          typeof job.url === "string" && job.url.trim() ? job.url.trim() : null,
+        );
         if (typeof job.jdText === "string" && job.jdText.trim()) {
           setJdText(job.jdText);
         } else {
@@ -395,66 +427,6 @@ export function HomeBoard() {
     }
   }
 
-  async function runLocalBossCrawl() {
-    if (!crawlKeyword.trim()) {
-      alert("请填写搜索关键词");
-      return;
-    }
-    setCrawlBusy(true);
-    setCrawlNotice(null);
-    try {
-      const signal =
-        typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
-          ? AbortSignal.timeout(12 * 60_000)
-          : undefined;
-      const res = await fetchWithAiHeaders("/api/crawl/local", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          keyword: crawlKeyword.trim(),
-          platform: crawlPlatform,
-          cityCode: crawlCityCode.trim() || "101280600",
-          pages: 3,
-          fetchDetails: crawlFetchDetails,
-          resumeId: crawlResumeAuto ? "auto" : undefined,
-        }),
-        signal,
-      });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        message?: string;
-        stdout?: string;
-        stderr?: string;
-      };
-      if (res.status === 501) {
-        setCrawlNotice(data.message ?? "该平台尚未接入");
-        return;
-      }
-      if (!res.ok) {
-        setCrawlNotice(
-          data.message ?? data.error ?? `请求失败（HTTP ${res.status}）`,
-        );
-        return;
-      }
-      if (!data.ok) {
-        setCrawlNotice(
-          data.message ?? "爬虫进程异常退出，请查看终端/响应中的 stderr。",
-        );
-        return;
-      }
-      setCrawlNotice(
-        "抓取流程已结束；若已勾选导入，请查看下方投递列表。详细日志见服务器控制台。",
-      );
-      void refresh();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setCrawlNotice(`抓取失败：${msg}`);
-    } finally {
-      setCrawlBusy(false);
-    }
-  }
-
   async function runResumeImport(file: File) {
     if (resumeImportInFlight.current) return;
     resumeImportInFlight.current = true;
@@ -493,6 +465,7 @@ export function HomeBoard() {
       }
       if (typeof data.rawMarkdown === "string" && data.rawMarkdown.trim()) {
         setResumeMd(data.rawMarkdown);
+        saveDefaultResumeMarkdown(data.rawMarkdown);
       }
       if (typeof data.resumeId === "string") setResumeId(data.resumeId);
       setResumeNotice("简历导入成功，已填充到文本框。");
@@ -512,6 +485,7 @@ export function HomeBoard() {
       setResumeNotice("请先粘贴或输入简历内容。");
       return;
     }
+    saveDefaultResumeMarkdown(resumeMd);
     setIsResumeUploaded(true);
     writeResumeUploadedToSession();
     setResumeNotice("已确认使用当前简历内容。");
@@ -538,14 +512,7 @@ export function HomeBoard() {
 
       <div className="space-y-6">
         <div>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              岗位与投递
-            </h1>
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/">岗位探索</Link>
-            </Button>
-          </div>
+          <h1 className="text-2xl font-semibold tracking-tight">岗位与投递</h1>
           <p className="text-sm text-muted-foreground">
             左侧维护简历与 JD，一键创建投递并在详情页进行 AI 评分与改写。
           </p>
@@ -555,6 +522,16 @@ export function HomeBoard() {
                 <span className="font-semibold text-foreground">
                   当前职位：{jobTitle || "—"}
                 </span>
+                {contextJobUrl && (
+                  <a
+                    href={contextJobUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    BOSS 原文
+                  </a>
+                )}
                 <span className="text-muted-foreground">{company || "—"}</span>
                 <span className="font-medium text-orange-600 dark:text-orange-400">
                   {salary || "—"}
@@ -586,6 +563,9 @@ export function HomeBoard() {
         <Card>
           <CardHeader>
             <CardTitle>1. 简历（Markdown）</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              默认简历仅保存在当前浏览器 localStorage，不上传数据库。
+            </p>
           </CardHeader>
           <CardContent className="space-y-2">
             {isResumeUploaded ? (
@@ -661,92 +641,6 @@ export function HomeBoard() {
             )}
             {resumeNotice && (
               <p className="text-xs text-muted-foreground">{resumeNotice}</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>本地 BOSS 抓取（实验）</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-xs text-muted-foreground">
-              在本机已登录 BOSS（chrome_profile）且已创建{" "}
-              <code className="rounded bg-muted px-1">
-                tools/boss_zhipin_crawl/.venv
-              </code>{" "}
-              时使用。仅开发环境或设置{" "}
-              <code className="rounded bg-muted px-1">
-                JOBHUNTER_ALLOW_LOCAL_CRAWL=1
-              </code>
-              。
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="crawl-keyword">搜索关键词</Label>
-                <Input
-                  id="crawl-keyword"
-                  placeholder="例如：产品经理"
-                  value={crawlKeyword}
-                  onChange={(e) => setCrawlKeyword(e.target.value)}
-                  disabled={crawlBusy || loading}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="crawl-platform">平台</Label>
-                <select
-                  id="crawl-platform"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={crawlPlatform}
-                  onChange={(e) =>
-                    setCrawlPlatform(e.target.value as "boss" | "other")
-                  }
-                  disabled={crawlBusy || loading}
-                >
-                  <option value="boss">BOSS 直聘</option>
-                  <option value="other">其他（即将支持）</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="crawl-city">城市编码</Label>
-                <Input
-                  id="crawl-city"
-                  placeholder="101280600=深圳"
-                  value={crawlCityCode}
-                  onChange={(e) => setCrawlCityCode(e.target.value)}
-                  disabled={crawlBusy || loading}
-                />
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-4 text-sm">
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={crawlFetchDetails}
-                  onChange={(e) => setCrawlFetchDetails(e.target.checked)}
-                  disabled={crawlBusy || loading}
-                />
-                抓取详情 JD（裁剪职位描述分节）
-              </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={crawlResumeAuto}
-                  onChange={(e) => setCrawlResumeAuto(e.target.checked)}
-                  disabled={crawlBusy || loading}
-                />
-                导入并创建投递（resumeId=auto）
-              </label>
-            </div>
-            <Button
-              type="button"
-              onClick={() => void runLocalBossCrawl()}
-              disabled={crawlBusy || loading || visionBusy}
-            >
-              {crawlBusy ? "抓取中（可能数分钟）…" : "开始抓取并导入"}
-            </Button>
-            {crawlNotice && (
-              <p className="text-xs text-muted-foreground">{crawlNotice}</p>
             )}
           </CardContent>
         </Card>
@@ -853,6 +747,35 @@ export function HomeBoard() {
                           <div className="font-medium leading-tight">
                             {a.job.title}
                           </div>
+                          {a.job.url && /^https?:\/\//i.test(a.job.url) && (
+                            <span
+                              role="link"
+                              tabIndex={0}
+                              className="mt-0.5 inline-block cursor-pointer text-xs text-primary underline-offset-2 hover:underline"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                window.open(
+                                  a.job.url!,
+                                  "_blank",
+                                  "noopener,noreferrer",
+                                );
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  window.open(
+                                    a.job.url!,
+                                    "_blank",
+                                    "noopener,noreferrer",
+                                  );
+                                }
+                              }}
+                            >
+                              BOSS 原文
+                            </span>
+                          )}
                           <div className="text-xs text-muted-foreground">
                             {a.job.company}
                             {a.job.salary ? ` · ${a.job.salary}` : ""}

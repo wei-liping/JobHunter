@@ -8,6 +8,13 @@ import {
   isLocalCrawlAllowed,
   resolveCrawlPythonExecutable,
 } from "@/lib/crawl/localBoss";
+import {
+  DEFAULT_CRAWL_PAGES,
+  DEFAULT_MAX_JOBS,
+  MAX_JOBS_PER_RUN,
+  buildBossCrawlSpawnArgs,
+  mergeCrawlTiming,
+} from "@/lib/crawl/crawlTiming";
 
 const execFileAsync = promisify(execFile);
 
@@ -15,10 +22,26 @@ const bodySchema = z.object({
   keyword: z.string().min(1).max(200),
   platform: z.enum(["boss", "other"]),
   cityCode: z.string().min(1).max(32).optional().default("101280600"),
-  pages: z.number().int().min(1).max(20).optional().default(3),
-  maxJobs: z.number().int().min(1).max(100).optional().default(2),
+  pages: z
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .optional()
+    .default(DEFAULT_CRAWL_PAGES),
+  maxJobs: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_JOBS_PER_RUN)
+    .optional()
+    .default(DEFAULT_MAX_JOBS),
   fetchDetails: z.boolean().optional().default(true),
   resumeId: z.union([z.string().min(1), z.literal("auto")]).optional(),
+  listSleep: z.number().min(0).max(60).optional(),
+  detailSleep: z.number().min(0).max(60).optional(),
+  detailDomWait: z.number().min(0.5).max(30).optional(),
+  detailListenTimeout: z.number().min(5).max(120).optional(),
 });
 
 function parseHostPort(hostHeader: string | null): {
@@ -69,7 +92,18 @@ export async function POST(req: Request) {
     maxJobs,
     fetchDetails,
     resumeId,
+    listSleep,
+    detailSleep,
+    detailDomWait,
+    detailListenTimeout,
   } = parsed.data;
+
+  const timing = mergeCrawlTiming({
+    listSleep,
+    detailSleep,
+    detailDomWait,
+    detailListenTimeout,
+  });
 
   if (platform === "other") {
     return NextResponse.json(
@@ -89,31 +123,17 @@ export async function POST(req: Request) {
   const { port } = parseHostPort(req.headers.get("host"));
   const importBase = `http://127.0.0.1:${port}`;
 
-  const args: string[] = [
+  const args = buildBossCrawlSpawnArgs({
     script,
-    "--url",
     listUrl,
-    "--pages",
-    String(pages),
-    "--max-jobs",
-    String(maxJobs),
-    "--sleep",
-    "10",
-    "--import",
+    pages,
+    maxJobs,
     importBase,
-  ];
-  if (fetchDetails) {
-    args.push(
-      "--fetch-details",
-      "--max-details",
-      String(maxJobs),
-      "--detail-sleep",
-      "1",
-    );
-  }
-  if (resumeId) {
-    args.push("--resume-id", resumeId);
-  }
+    stream: false,
+    fetchDetails,
+    timing,
+    resumeId,
+  });
 
   const maxBuffer = 24 * 1024 * 1024;
   const timeout = 12 * 60 * 1000;

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { FilterBar, type FilterState } from "./FilterBar";
 import { JobList } from "./JobList";
 import type { ExplorerJob, JobPlatform } from "./types";
@@ -11,6 +12,7 @@ import {
   defaultDocumentTitle,
 } from "@/lib/workflow-steps";
 import { fetchWithAiHeaders } from "@/lib/client/fetch-with-ai";
+import { DEFAULT_CRAWL_PAGES, DEFAULT_MAX_JOBS } from "@/lib/crawl/crawlTiming";
 
 const defaultFilters: FilterState = {
   query: "",
@@ -85,6 +87,7 @@ function mapJobFromApi(item: JobsApiItem): ExplorerJob {
     id: item.id,
     title: item.title,
     company: item.company,
+    url: item.url ?? null,
     salary: item.salary ?? "薪资面议",
     city: pickCompanyInfoText(
       item.companyInfo,
@@ -283,10 +286,13 @@ export function JobExplorerPage() {
       data.platform === "51job" || data.platform === "猎聘"
         ? (data.platform as JobPlatform)
         : "BOSS直聘";
+    const streamUrl =
+      typeof data.url === "string" && data.url.trim() ? data.url.trim() : null;
     return {
       id,
       title,
       company,
+      url: streamUrl,
       salary:
         typeof data.salary === "string" && data.salary
           ? data.salary
@@ -378,8 +384,8 @@ export function JobExplorerPage() {
             keyword: filters.query.trim(),
             platform: "boss",
             cityCode: filters.cityCode,
-            pages: 1,
-            maxJobs: 2,
+            pages: DEFAULT_CRAWL_PAGES,
+            maxJobs: DEFAULT_MAX_JOBS,
             fetchDetails: true,
           }),
         });
@@ -407,8 +413,8 @@ export function JobExplorerPage() {
       keyword: filters.query.trim(),
       platform: "boss",
       cityCode: filters.cityCode,
-      pages: "1",
-      maxJobs: "2",
+      pages: String(DEFAULT_CRAWL_PAGES),
+      maxJobs: String(DEFAULT_MAX_JOBS),
       fetchDetails: "true",
     });
     const es = new EventSource(`/api/crawl/local/stream?${params.toString()}`);
@@ -525,18 +531,9 @@ export function JobExplorerPage() {
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/workspace"
-            className="inline-flex h-9 items-center justify-center rounded-full bg-primary px-5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-          >
-            沉浸工作台
-          </Link>
-          <span
-            className="inline-flex h-9 cursor-not-allowed items-center rounded-full border border-border bg-background px-5 text-sm text-muted-foreground opacity-70"
-            title="即将上线"
-          >
-            面试训练营
-          </span>
+          <Button asChild size="default" className="rounded-full px-5">
+            <Link href="/workspace">沉浸工作台</Link>
+          </Button>
         </div>
       </div>
 

@@ -53,7 +53,7 @@ python crawl_boss.py --fetch-details --import http://localhost:3000 --resume-id 
 | `--sleep` | 列表每页后休眠秒数，默认 `10` |
 | `--fetch-details` | 二阶段打开详情页补全 JD |
 | `--detail-sleep` | 详情页之间休眠，默认 `10` |
-| `--detail-dom-wait` | 打开详情后等待渲染秒数，默认 `2.5` |
+| `--detail-dom-wait` | 打开详情后等待渲染秒数，默认 `7`（与 `JOBHUNTER_CRAWL_DETAIL_DOM_WAIT` 一致） |
 | `--detail-listen-keyword` | DOM 为空时，监听 URL 含该子串的响应并尝试从 JSON 抽描述 |
 | `--max-details` | 最多抓详情条数（调试/限流） |
 | `--import BASE_URL` | `POST /api/jobs` 导入每条职位 |
@@ -65,6 +65,19 @@ python crawl_boss.py --fetch-details --import http://localhost:3000 --resume-id 
 ## 通过 JobHunter 首页触发（可选）
 
 本地 `npm run dev` 时，首页「**本地 BOSS 抓取**」卡片会请求 `POST /api/crawl/local`，由 Next 在本机执行 `tools/boss_zhipin_crawl/crawl_boss.py`（需已配置 `.venv` 与 `chrome_profile` 登录）。非 development 环境需在 `.env` 设置 `JOBHUNTER_ALLOW_LOCAL_CRAWL=1`；可用 `JOBHUNTER_CRAWL_PYTHON` 指定 Python 路径。平台选「其他」时接口返回 501。
+
+### 抓取节奏（风控与速度）
+
+默认由环境变量传入子进程（与直接命令行 `--sleep`、`--detail-sleep`、`--detail-dom-wait`、`--detail-listen-timeout` 一致）：
+
+- `JOBHUNTER_CRAWL_LIST_SLEEP`：列表翻页间隔（秒）
+- `JOBHUNTER_CRAWL_DETAIL_SLEEP`：详情页之间间隔（秒）
+- `JOBHUNTER_CRAWL_DETAIL_DOM_WAIT`：打开详情后等待 DOM 渲染（秒）
+- `JOBHUNTER_CRAWL_DETAIL_LISTEN_TIMEOUT`：JSON 监听兜底单次上限（秒）
+
+建议先只调前两项，观察是否出现验证码、空白页或频繁失败；再视情况降低 DOM 等待或监听超时（可能增加采空或失败率）。也可在 `POST /api/crawl/local` 的 JSON body 中传 `listSleep`、`detailSleep`、`detailDomWait`、`detailListenTimeout`（数字）覆盖环境变量；岗位探索页的 SSE 支持同名 query 参数。
+
+详情阶段：单条详情若首次未采到正文，会**自动再跑一轮**（中间休眠与 `--detail-sleep` 一致）；监听循环会**跳过 Content-Type 明确非 JSON 的响应**（减少埋点/统计请求误命中）。
 
 ## 排错
 

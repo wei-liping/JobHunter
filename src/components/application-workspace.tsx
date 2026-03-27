@@ -16,6 +16,7 @@ import {
   buildWorkspaceDocumentTitle,
   defaultDocumentTitle,
 } from "@/lib/workflow-steps";
+import { SiteBackNav } from "@/components/site-back-nav";
 
 type ScoreAnalysis = {
   matchScore?: number;
@@ -268,9 +269,7 @@ export function ApplicationWorkspace({ id }: { id: string }) {
       <header className="border-b px-6 py-3">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/">返回探索</Link>
-            </Button>
+            <SiteBackNav />
             <Button variant="secondary" size="sm" asChild>
               <Link href={`/workspace?applicationId=${encodeURIComponent(id)}`}>
                 上一步：编辑简历与 JD
@@ -280,6 +279,16 @@ export function ApplicationWorkspace({ id }: { id: string }) {
               <span className="font-medium">
                 {data.job.title} · {data.job.company}
               </span>
+              {data.job.url && /^https?:\/\//i.test(data.job.url) && (
+                <a
+                  href={data.job.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  BOSS 原文
+                </a>
+              )}
               {data.job.salary && (
                 <span className="text-base font-semibold text-orange-600 dark:text-orange-400">
                   {data.job.salary}

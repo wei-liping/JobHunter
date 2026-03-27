@@ -6,6 +6,14 @@ import {
   isLocalCrawlAllowed,
   resolveCrawlPythonExecutable,
 } from "@/lib/crawl/localBoss";
+import {
+  DEFAULT_CRAWL_PAGES,
+  DEFAULT_MAX_JOBS,
+  MAX_JOBS_PER_RUN,
+  buildBossCrawlSpawnArgs,
+  mergeCrawlTiming,
+  parseOptionalQueryTimingOverrides,
+} from "@/lib/crawl/crawlTiming";
 
 export const runtime = "nodejs";
 
@@ -13,8 +21,13 @@ const querySchema = z.object({
   keyword: z.string().min(1).max(200),
   platform: z.enum(["boss", "other"]).default("boss"),
   cityCode: z.string().min(1).max(32).default("101280600"),
-  pages: z.coerce.number().int().min(1).max(20).default(2),
-  maxJobs: z.coerce.number().int().min(1).max(100).default(2),
+  pages: z.coerce.number().int().min(1).max(20).default(DEFAULT_CRAWL_PAGES),
+  maxJobs: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_JOBS_PER_RUN)
+    .default(DEFAULT_MAX_JOBS),
   fetchDetails: z
     .enum(["1", "0", "true", "false"])
     .optional()
@@ -74,8 +87,8 @@ export async function GET(req: Request) {
     keyword: url.searchParams.get("keyword") ?? "",
     platform: url.searchParams.get("platform") ?? "boss",
     cityCode: url.searchParams.get("cityCode") ?? "101280600",
-    pages: url.searchParams.get("pages") ?? "2",
-    maxJobs: url.searchParams.get("maxJobs") ?? "2",
+    pages: url.searchParams.get("pages") ?? String(DEFAULT_CRAWL_PAGES),
+    maxJobs: url.searchParams.get("maxJobs") ?? String(DEFAULT_MAX_JOBS),
     fetchDetails: url.searchParams.get("fetchDetails") ?? "true",
   });
 
@@ -98,6 +111,9 @@ export async function GET(req: Request) {
 
   const { keyword, platform, cityCode, pages, maxJobs } = parsed.data;
   const fetchDetails = parsed.data.fetchDetails ?? true;
+  const timing = mergeCrawlTiming(
+    parseOptionalQueryTimingOverrides(url.searchParams),
+  );
 
   if (platform === "other") {
     return new Response(
@@ -123,29 +139,16 @@ export async function GET(req: Request) {
   const { port } = parseHostPort(req.headers.get("host"));
   const importBase = `http://127.0.0.1:${port}`;
 
-  const args: string[] = [
+  const args = buildBossCrawlSpawnArgs({
     script,
-    "--url",
     listUrl,
-    "--pages",
-    String(pages),
-    "--max-jobs",
-    String(maxJobs),
-    "--sleep",
-    "10",
-    "--import",
+    pages,
+    maxJobs,
     importBase,
-    "--stream",
-  ];
-  if (fetchDetails) {
-    args.push(
-      "--fetch-details",
-      "--max-details",
-      String(maxJobs),
-      "--detail-sleep",
-      "1",
-    );
-  }
+    stream: true,
+    fetchDetails,
+    timing,
+  });
 
   const encoder = new TextEncoder();
 
@@ -163,7 +166,14 @@ export async function GET(req: Request) {
             keyword,
             cityCode,
             pages,
+            maxJobs,
             fetchDetails,
+            timing: {
+              listSleep: timing.listSleep,
+              detailSleep: timing.detailSleep,
+              detailDomWait: timing.detailDomWait,
+              detailListenTimeout: timing.detailListenTimeout,
+            },
           }),
         ),
       );

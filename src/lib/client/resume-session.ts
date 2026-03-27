@@ -10,3 +10,8 @@ export function writeResumeUploadedToSession(): void {
   if (typeof window === "undefined") return;
   sessionStorage.setItem(RESUME_UPLOADED_SESSION_KEY, "1");
 }
+
+export function clearResumeUploadedFromSession(): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(RESUME_UPLOADED_SESSION_KEY);
+}

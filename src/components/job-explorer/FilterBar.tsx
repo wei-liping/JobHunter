@@ -54,8 +54,9 @@ type Props = {
   searching?: boolean;
 };
 
+/** 不用 flex-1，避免与搜索框同一行时把输入区挤没、或换行后下拉被压成「部平台」 */
 const selectClass =
-  "flex h-10 min-w-[7rem] flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-w-[8rem]";
+  "h-10 min-w-[9rem] shrink-0 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-w-[9.5rem]";
 
 export function FilterBar({
   value,
@@ -70,16 +71,16 @@ export function FilterBar({
 
   return (
     <div className="space-y-4 rounded-xl border bg-card p-4 shadow-md">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-        <div className="min-w-0 flex-1 space-y-2">
+      <div className="flex flex-col gap-3">
+        <div className="w-full min-w-0 space-y-2">
           <Label htmlFor="explorer-search" className="sr-only">
             搜索职位或公司
           </Label>
-          <div className="relative">
+          <div className="relative w-full">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               id="explorer-search"
-              className="pl-9"
+              className="w-full pl-9"
               placeholder="搜索公司或职位…"
               value={value.query}
               onChange={(e) => patch({ query: e.target.value })}
@@ -89,7 +90,7 @@ export function FilterBar({
             />
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <select
             className={selectClass}
             value={value.platform}
@@ -166,6 +167,7 @@ export function FilterBar({
           </select>
           <Button
             type="button"
+            variant="default"
             className="h-10 min-w-[7rem] rounded-md px-4"
             onClick={onSearch}
             disabled={searching}

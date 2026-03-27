@@ -167,6 +167,37 @@ def parse_joblist_response(body: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _listen_packet_is_probably_json(resp_packet: Any) -> bool:
+    """
+    监听命中可能包含统计/埋点等非职位 JSON；若 Content-Type 明确非 JSON 则跳过本次，
+    继续 wait 直至超时，减少误解析。
+    """
+    try:
+        raw = getattr(resp_packet, "response", None)
+        if raw is None:
+            return True
+        headers = getattr(raw, "headers", None)
+        if not headers:
+            return True
+        ct = ""
+        if isinstance(headers, dict):
+            for hk, hv in headers.items():
+                if str(hk).lower() == "content-type":
+                    ct = str(hv).lower()
+                    break
+        if not ct.strip():
+            return True
+        if (
+            "application/json" in ct
+            or "text/json" in ct
+            or "+json" in ct
+        ):
+            return True
+        return False
+    except Exception:
+        return True
+
+
 def normalize_response_body(body: Any) -> dict[str, Any] | None:
     if isinstance(body, (bytes, bytearray)):
         try:
@@ -408,6 +439,8 @@ def fetch_detail_for_job(
                 resp = page.listen.wait(timeout=remaining)
                 if not resp or not hasattr(resp, "response"):
                     break
+                if not _listen_packet_is_probably_json(resp):
+                    continue
                 body = normalize_response_body(resp.response.body)
                 if isinstance(body, dict):
                     jt = extract_description_from_detail_json(body)
@@ -456,6 +489,7 @@ def run_list_phase(
                     if key and key not in collected:
                         collected[key] = job
                         print(f"  + {job.get('jobName')} @ {job.get('brandName')}")
+                        _detail_u = job_detail_url(job) or ""
                         emit_stream_event(
                             stream,
                             "job",
@@ -470,6 +504,7 @@ def run_list_phase(
                                 "platform": "BOSS直聘",
                                 "companySize": job.get("brandScaleName") or "不限",
                                 "score": 0,
+                                "url": _detail_u,
                             },
                         )
                         if max_jobs is not None and len(collected) >= max_jobs:
@@ -545,6 +580,15 @@ def run_detail_phase(
             detail_listen_keyword=detail_listen_keyword,
             listen_timeout=listen_timeout,
         )
+        if not ok:
+            time.sleep(max(0.5, detail_sleep))
+            text, ok = fetch_detail_for_job(
+                page,
+                url,
+                detail_dom_wait=detail_dom_wait,
+                detail_listen_keyword=detail_listen_keyword,
+                listen_timeout=listen_timeout,
+            )
         if ok:
             job["_detail_body"] = text
         else:
@@ -778,8 +822,8 @@ def main() -> int:
     parser.add_argument(
         "--detail-dom-wait",
         type=float,
-        default=5.0,
-        help="打开详情页后等待渲染的秒数",
+        default=7.0,
+        help="打开详情页后等待渲染的秒数（与 JobHunter 默认 JOBHUNTER_CRAWL_DETAIL_DOM_WAIT 对齐）",
     )
     parser.add_argument(
         "--detail-listen-keyword",

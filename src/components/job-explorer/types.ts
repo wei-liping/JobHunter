@@ -11,4 +11,6 @@ export type ExplorerJob = {
   companySize: string;
   platform: JobPlatform;
   score: number;
+  /** BOSS 详情页 URL，抓取入库后可能有 */
+  url?: string | null;
 };
