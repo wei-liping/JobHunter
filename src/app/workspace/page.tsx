@@ -1,39 +1,18 @@
-import { Suspense } from "react";
-import { HomeBoard } from "@/components/home-board";
-import { AiConfigDialog } from "@/components/ai-config-dialog";
-import { SiteBackNav } from "@/components/site-back-nav";
-import { BrandMark } from "@/components/brand-mark";
+import { redirect } from "next/navigation";
 
-export default function WorkspacePage() {
-  return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b bg-background px-6 py-4">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <SiteBackNav />
-            <BrandMark />
-            <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
-              <span className="text-lg font-semibold">JobHunter AI</span>
-              <span className="text-sm text-muted-foreground">
-                智能求职工作台
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">
-              在下方创建投递
-            </span>
-            <AiConfigDialog />
-          </div>
-        </div>
-      </header>
-      <main className="mx-auto w-full max-w-7xl flex-1 p-6">
-        <Suspense
-          fallback={<p className="text-sm text-muted-foreground">加载中…</p>}
-        >
-          <HomeBoard />
-        </Suspense>
-      </main>
-    </div>
-  );
+export default async function WorkspacePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const next = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => next.append(key, item));
+    } else if (typeof value === "string") {
+      next.set(key, value);
+    }
+  });
+  redirect(next.toString() ? `/resume?${next.toString()}` : "/resume");
 }

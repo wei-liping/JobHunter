@@ -7,12 +7,17 @@ import {
   sendWorkflowNotification,
 } from "@/lib/feishu/sync";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const patchBody = z.object({
   status: z
     .enum(["NEW", "SCORED_HIGH", "SCORED_LOW", "REVIEWED", "READY_TO_APPLY"])
     .optional(),
   tailoredResumeJson: z.string().optional().nullable(),
   coverLetter: z.string().optional().nullable(),
+  reviewNotes: z.string().optional().nullable(),
+  reviewSummary: z.string().optional().nullable(),
 });
 
 export async function GET(
@@ -51,6 +56,10 @@ export async function PATCH(
         tailoredResumeJson: data.tailoredResumeJson,
       }),
       ...(data.coverLetter !== undefined && { coverLetter: data.coverLetter }),
+      ...(data.reviewNotes !== undefined && { reviewNotes: data.reviewNotes }),
+      ...(data.reviewSummary !== undefined && {
+        reviewSummary: data.reviewSummary,
+      }),
     },
     include: { job: true, resume: true },
   });

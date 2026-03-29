@@ -17,6 +17,13 @@ enum JobPlatform {
   MANUAL   @map("manual")
 }
 
+enum ResumeSourceType {
+  MANUAL    @map("manual")
+  IMPORTED  @map("imported")
+  OCR       @map("ocr")
+  TAILORED  @map("tailored")
+}
+
 enum ApplicationStatus {
   NEW              @map("new")
   SCORED_HIGH      @map("scored_high")
@@ -38,7 +45,10 @@ model Job {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
-  applications Application[]
+  applications     Application[]
+  savedJob         SavedJob?
+  sourcedResumes   Resume[]          @relation("ResumeSourceJob")
+  interviewSessions InterviewSession[]
 }
 
 model Resume {
@@ -46,10 +56,18 @@ model Resume {
   title        String   @default("我的简历")
   rawMarkdown  String   @db.Text
   filePath     String?
+  sourceType   ResumeSourceType @default(MANUAL)
+  sourceLabel  String?
+  sourceJobId  String?
+  sourceJob    Job?     @relation("ResumeSourceJob", fields: [sourceJobId], references: [id], onDelete: SetNull)
+  parentResumeId String?
+  parentResume Resume?  @relation("ResumeVersionLineage", fields: [parentResumeId], references: [id], onDelete: SetNull)
+  childResumes Resume[] @relation("ResumeVersionLineage")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  applications Application[]
+  applications      Application[]
+  interviewSessions InterviewSession[]
 }
 
 model Application {
@@ -61,6 +79,8 @@ model Application {
   status             ApplicationStatus @default(NEW)
   tailoredResumeJson String?           @db.Text
   coverLetter        String?           @db.Text
+  reviewNotes        String?           @db.Text
+  reviewSummary      String?           @db.Text
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
@@ -77,4 +97,28 @@ model Score {
   analysisJson    Json
   model           String?
   createdAt       DateTime      @default(now())
+}
+
+model SavedJob {
+  id         String   @id @default(cuid())
+  jobId       String   @unique
+  note       String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model InterviewSession {
+  id         String   @id @default(cuid())
+  title      String?
+  jobId      String
+  resumeId   String
+  summary    String?  @db.Text
+  transcript Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  job    Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
 }

@@ -3,18 +3,13 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
 import {
-  buildBossListUrl,
-  crawlBossScriptPath,
   isLocalCrawlAllowed,
-  resolveCrawlPythonExecutable,
+  inspectBbBrowserAvailability,
+  localBossBbScriptPath,
+  resolveBbBrowserCommand,
+  resolveLocalNodeExecutable,
 } from "@/lib/crawl/localBoss";
-import {
-  DEFAULT_CRAWL_PAGES,
-  DEFAULT_MAX_JOBS,
-  MAX_JOBS_PER_RUN,
-  buildBossCrawlSpawnArgs,
-  mergeCrawlTiming,
-} from "@/lib/crawl/crawlTiming";
+import { DEFAULT_CRAWL_PAGES, DEFAULT_MAX_JOBS, MAX_JOBS_PER_RUN } from "@/lib/crawl/crawlTiming";
 
 const execFileAsync = promisify(execFile);
 
@@ -37,11 +32,6 @@ const bodySchema = z.object({
     .optional()
     .default(DEFAULT_MAX_JOBS),
   fetchDetails: z.boolean().optional().default(true),
-  resumeId: z.union([z.string().min(1), z.literal("auto")]).optional(),
-  listSleep: z.number().min(0).max(60).optional(),
-  detailSleep: z.number().min(0).max(60).optional(),
-  detailDomWait: z.number().min(0.5).max(30).optional(),
-  detailListenTimeout: z.number().min(5).max(120).optional(),
 });
 
 function parseHostPort(hostHeader: string | null): {
@@ -91,19 +81,7 @@ export async function POST(req: Request) {
     pages,
     maxJobs,
     fetchDetails,
-    resumeId,
-    listSleep,
-    detailSleep,
-    detailDomWait,
-    detailListenTimeout,
   } = parsed.data;
-
-  const timing = mergeCrawlTiming({
-    listSleep,
-    detailSleep,
-    detailDomWait,
-    detailListenTimeout,
-  });
 
   if (platform === "other") {
     return NextResponse.json(
@@ -115,41 +93,64 @@ export async function POST(req: Request) {
     );
   }
 
+  const availability = inspectBbBrowserAvailability();
+  if (!availability.ok) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: availability.error ?? "bb_browser_unavailable",
+        message:
+          availability.message ??
+          "本机浏览器工具当前不可用，请检查安装和命令路径。",
+      },
+      { status: 503 },
+    );
+  }
+
   const projectRoot = process.cwd();
-  const py = resolveCrawlPythonExecutable(projectRoot);
-  const script = crawlBossScriptPath(projectRoot);
-  const listUrl = buildBossListUrl(keyword, cityCode);
+  const node = resolveLocalNodeExecutable();
+  const script = localBossBbScriptPath(projectRoot);
+  const bbBrowser = resolveBbBrowserCommand();
 
   const { port } = parseHostPort(req.headers.get("host"));
   const importBase = `http://127.0.0.1:${port}`;
 
-  const args = buildBossCrawlSpawnArgs({
+  const args = [
     script,
-    listUrl,
-    pages,
-    maxJobs,
+    "--keyword",
+    keyword,
+    "--city-code",
+    cityCode,
+    "--pages",
+    String(pages),
+    "--max-jobs",
+    String(maxJobs),
+    "--import-base",
     importBase,
-    stream: false,
-    fetchDetails,
-    timing,
-    resumeId,
-  });
+    fetchDetails ? "--fetch-details" : "--no-fetch-details",
+  ];
 
   const maxBuffer = 24 * 1024 * 1024;
   const timeout = 12 * 60 * 1000;
   try {
-    const { stdout, stderr } = await execFileAsync(py, args, {
+    const { stdout } = await execFileAsync(node, args, {
       cwd: projectRoot,
       maxBuffer,
       timeout,
-      env: { ...process.env },
+      env: { ...process.env, JOBHUNTER_BB_BROWSER_BIN: bbBrowser },
     });
-    return NextResponse.json({
-      ok: true,
-      url: listUrl,
-      stdout: stdout.slice(-8000),
-      stderr: stderr.slice(-4000),
-    });
+    let body: unknown = null;
+    try {
+      body = JSON.parse(stdout);
+    } catch {
+      body = {
+        ok: false,
+        error: "invalid_script_output",
+        message: "本地 BOSS 搜索脚本返回了无法识别的结果。",
+        stdout: stdout.slice(-8000),
+      };
+    }
+    return NextResponse.json(body);
   } catch (e: unknown) {
     const err = e as NodeJS.ErrnoException & {
       stdout?: string;
@@ -160,16 +161,21 @@ export async function POST(req: Request) {
       typeof err.stdout === "string" ? err.stdout.slice(-8000) : "";
     const stderr =
       typeof err.stderr === "string" ? err.stderr.slice(-4000) : "";
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "crawl_failed",
-        message: err.message ?? String(e),
-        code: err.code,
-        stdout,
-        stderr,
-      },
-      { status: 500 },
-    );
+    let body: Record<string, unknown> = {
+      ok: false,
+      error: "crawl_failed",
+      message: err.message ?? String(e),
+      code: err.code,
+      stdout,
+      stderr,
+    };
+    if (stdout) {
+      try {
+        body = JSON.parse(stdout) as Record<string, unknown>;
+      } catch {
+        // keep fallback payload
+      }
+    }
+    return NextResponse.json(body, { status: 500 });
   }
 }

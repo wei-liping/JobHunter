@@ -6,6 +6,39 @@ export type TailoredResume = {
   fullMarkdown: string;
 };
 
+function stripStarMarkers(text: string): string {
+  return text
+    .replace(/^\s*根据\s*STAR\s*原则[整理改写如下：:\s-]*/gim, "")
+    .replace(/^\s*STAR\s*改写[如下：:\s-]*/gim, "")
+    .replace(/^[\-\u2022]?\s*(S|Situation)\s*[：:]\s*/i, "")
+    .replace(/\s*[；;]?\s*(T|Task)\s*[：:]\s*/gi, "；")
+    .replace(/\s*[；;]?\s*(A|Action)\s*[：:]\s*/gi, "；")
+    .replace(/\s*[；;]?\s*(R|Result)\s*[：:]\s*/gi, "；")
+    .replace(/；{2,}/g, "；")
+    .replace(/\s+；/g, "；")
+    .replace(/；\s+/g, "；")
+    .trim();
+}
+
+function normalizeTailoredResume(result: TailoredResume): TailoredResume {
+  return {
+    sections: Array.isArray(result.sections)
+      ? result.sections.map((section) => ({
+          title: section.title,
+          bullets: Array.isArray(section.bullets)
+            ? section.bullets.map((bullet) => stripStarMarkers(bullet)).filter(Boolean)
+            : [],
+        }))
+      : [],
+    fullMarkdown: String(result.fullMarkdown || "")
+      .split("\n")
+      .map((line) => stripStarMarkers(line))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
+  };
+}
+
 export async function runResumeTailor(
   jdText: string,
   rawResumeMarkdown: string,
@@ -42,7 +75,7 @@ export async function runResumeTailor(
   }
   const text = completion.choices[0]?.message?.content ?? "{}";
   try {
-    return JSON.parse(text) as TailoredResume;
+    return normalizeTailoredResume(JSON.parse(text) as TailoredResume);
   } catch {
     return {
       sections: [

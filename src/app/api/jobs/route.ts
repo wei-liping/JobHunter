@@ -5,6 +5,9 @@ import { JobPlatform } from "@/generated/prisma/enums";
 import { Prisma } from "@/generated/prisma/client";
 import { ZodError } from "zod";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const platformEnum = z.enum(["BOSS", "LIEPIN", "JOB51", "ZHILIAN", "MANUAL"]);
 
 const createBody = z.object({
@@ -25,25 +28,48 @@ export async function GET() {
       _count: { select: { applications: true } },
     },
   });
-  return NextResponse.json(jobs);
+  return NextResponse.json(jobs, {
+    headers: { "Cache-Control": "no-store, max-age=0" },
+  });
 }
 
 export async function POST(req: Request) {
   try {
     const json = await req.json();
     const data = createBody.parse(json);
-    const job = await prisma.job.create({
-      data: {
-        title: data.title,
-        company: data.company,
-        salary: data.salary,
-        jdText: data.jdText,
-        requirements: data.requirements ?? [],
-        url: data.url,
-        platform: (data.platform ?? "MANUAL") as JobPlatform,
-        companyInfo: data.companyInfo as Prisma.InputJsonValue | undefined,
-      },
-    });
+    const platform = (data.platform ?? "MANUAL") as JobPlatform;
+    const normalizedUrl = data.url?.trim();
+    const existing = normalizedUrl
+      ? await prisma.job.findFirst({
+          where: { platform, url: normalizedUrl },
+        })
+      : await prisma.job.findFirst({
+          where: {
+            platform,
+            title: data.title,
+            company: data.company,
+          },
+        });
+
+    const payload = {
+      title: data.title,
+      company: data.company,
+      salary: data.salary,
+      jdText: data.jdText,
+      requirements: data.requirements ?? [],
+      url: normalizedUrl,
+      platform,
+      companyInfo: data.companyInfo as Prisma.InputJsonValue | undefined,
+    };
+
+    const job = existing
+      ? await prisma.job.update({
+          where: { id: existing.id },
+          data: payload,
+        })
+      : await prisma.job.create({
+          data: payload,
+        });
     return NextResponse.json(job);
   } catch (e: unknown) {
     if (e instanceof ZodError) {

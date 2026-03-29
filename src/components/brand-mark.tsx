@@ -4,10 +4,10 @@
 export function BrandMark({ className = "" }: { className?: string }) {
   return (
     <span
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-lg leading-none text-primary-foreground shadow-sm ${className}`}
+      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#1d4ed8,#38bdf8)] text-sm font-semibold tracking-[-0.04em] text-white shadow-[0_10px_24px_rgba(37,99,235,0.28)] ${className}`}
       aria-hidden
     >
-      💼
+      JH
     </span>
   );
 }

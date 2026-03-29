@@ -1,18 +1,16 @@
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import {
-  buildBossListUrl,
-  crawlBossScriptPath,
   isLocalCrawlAllowed,
-  resolveCrawlPythonExecutable,
+  inspectBbBrowserAvailability,
+  localBossBbScriptPath,
+  resolveBbBrowserCommand,
+  resolveLocalNodeExecutable,
 } from "@/lib/crawl/localBoss";
 import {
   DEFAULT_CRAWL_PAGES,
   DEFAULT_MAX_JOBS,
   MAX_JOBS_PER_RUN,
-  buildBossCrawlSpawnArgs,
-  mergeCrawlTiming,
-  parseOptionalQueryTimingOverrides,
 } from "@/lib/crawl/crawlTiming";
 
 export const runtime = "nodejs";
@@ -111,9 +109,6 @@ export async function GET(req: Request) {
 
   const { keyword, platform, cityCode, pages, maxJobs } = parsed.data;
   const fetchDetails = parsed.data.fetchDetails ?? true;
-  const timing = mergeCrawlTiming(
-    parseOptionalQueryTimingOverrides(url.searchParams),
-  );
 
   if (platform === "other") {
     return new Response(
@@ -132,51 +127,90 @@ export async function GET(req: Request) {
     );
   }
 
+  const availability = inspectBbBrowserAvailability();
+  if (!availability.ok) {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(
+          encoder.encode(
+            sseLine("start", {
+              mode: "bb-site",
+              keyword,
+              cityCode,
+              pages,
+              maxJobs,
+              fetchDetails,
+            }),
+          ),
+        );
+        controller.enqueue(
+          encoder.encode(
+            sseLine("error", {
+              ok: false,
+              error: availability.error ?? "bb_browser_unavailable",
+              message:
+                availability.message ??
+                "本机浏览器工具当前不可用，请检查安装和命令路径。",
+            }),
+          ),
+        );
+        controller.enqueue(
+          encoder.encode(
+            sseLine("done", {
+              ok: false,
+              error: availability.error ?? "bb_browser_unavailable",
+              message:
+                availability.message ??
+                "本机浏览器工具当前不可用，请检查安装和命令路径。",
+            }),
+          ),
+        );
+        controller.close();
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
+
   const projectRoot = process.cwd();
-  const py = resolveCrawlPythonExecutable(projectRoot);
-  const script = crawlBossScriptPath(projectRoot);
-  const listUrl = buildBossListUrl(keyword, cityCode);
+  const node = resolveLocalNodeExecutable();
+  const script = localBossBbScriptPath(projectRoot);
+  const bbBrowser = resolveBbBrowserCommand();
   const { port } = parseHostPort(req.headers.get("host"));
   const importBase = `http://127.0.0.1:${port}`;
 
-  const args = buildBossCrawlSpawnArgs({
+  const args = [
     script,
-    listUrl,
-    pages,
-    maxJobs,
+    "--keyword",
+    keyword,
+    "--city-code",
+    cityCode,
+    "--pages",
+    String(pages),
+    "--max-jobs",
+    String(maxJobs),
+    "--import-base",
     importBase,
-    stream: true,
-    fetchDetails,
-    timing,
-  });
+    "--stream",
+    fetchDetails ? "--fetch-details" : "--no-fetch-details",
+  ];
 
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const child = spawn(py, args, {
+      const child = spawn(node, args, {
         cwd: projectRoot,
-        env: { ...process.env },
+        env: { ...process.env, JOBHUNTER_BB_BROWSER_BIN: bbBrowser },
       });
-
-      controller.enqueue(
-        encoder.encode(
-          sseLine("start", {
-            mode: "sse",
-            keyword,
-            cityCode,
-            pages,
-            maxJobs,
-            fetchDetails,
-            timing: {
-              listSleep: timing.listSleep,
-              detailSleep: timing.detailSleep,
-              detailDomWait: timing.detailDomWait,
-              detailListenTimeout: timing.detailListenTimeout,
-            },
-          }),
-        ),
-      );
+      let sawDone = false;
 
       const onAbort = () => {
         child.kill("SIGTERM");
@@ -202,6 +236,9 @@ export async function GET(req: Request) {
           const trimmed = line.trim();
           if (!trimmed) continue;
           const evt = toEvent(trimmed);
+          if (evt.event === "done") {
+            sawDone = true;
+          }
           controller.enqueue(encoder.encode(sseLine(evt.event, evt.data)));
         }
       });
@@ -239,15 +276,17 @@ export async function GET(req: Request) {
 
       child.on("close", (code, signal) => {
         req.signal.removeEventListener("abort", onAbort);
-        controller.enqueue(
-          encoder.encode(
-            sseLine("done", {
-              exitCode: code,
-              signal,
-              ok: code === 0,
-            }),
-          ),
-        );
+        if (!sawDone) {
+          controller.enqueue(
+            encoder.encode(
+              sseLine("done", {
+                exitCode: code,
+                signal,
+                ok: code === 0,
+              }),
+            ),
+          );
+        }
         controller.close();
       });
     },

@@ -20,5 +20,5 @@ export async function fetchWithAiHeaders(
     merged.delete("content-type");
     merged.delete("Content-Type");
   }
-  return fetch(input, { ...init, headers: merged });
+  return fetch(input, { ...init, headers: merged, cache: "no-store" });
 }

@@ -85,7 +85,7 @@ const EXPLORER_PARAM_KEYS = [
 export function HomeBoard() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const applicationIdFromQuery = searchParams.get("applicationId");
+  const applicationIdFromQuery = searchParams?.get("applicationId") ?? null;
 
   const [applications, setApplications] = useState<ApplicationListItem[]>([]);
   const [resumeMd, setResumeMd] = useState("");
@@ -158,6 +158,7 @@ export function HomeBoard() {
 
   useEffect(() => {
     if (applicationIdFromQuery) return;
+    if (!searchParams) return;
 
     const jobIdParam = searchParams.get("jobId");
     const jobTitleParam = searchParams.get("jobTitle");

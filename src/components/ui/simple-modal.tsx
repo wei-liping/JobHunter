@@ -29,12 +29,12 @@ export function SimpleModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/30 p-4 sm:items-center"
       role="dialog"
       aria-modal="true"
       aria-labelledby="simple-modal-title"
     >
-      <Card className="w-full max-w-md shadow-lg">
+      <Card className="my-4 w-full max-w-md border-sky-100 shadow-[0_24px_70px_rgba(59,130,246,0.18)] sm:my-0">
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-2">
             <CardTitle id="simple-modal-title" className="text-lg">

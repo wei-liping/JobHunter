@@ -1,93 +1,101 @@
 "use client";
 
-import { Building2 } from "lucide-react";
+import { Building2, Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { ExplorerJob } from "./types";
 
 type Props = {
   job: ExplorerJob;
   className?: string;
-  onEnterPanel: (job: ExplorerJob) => void;
+  selected?: boolean;
+  saved?: boolean;
+  onSelect: (job: ExplorerJob) => void;
+  onSave: (job: ExplorerJob) => void;
+  onOptimize: (job: ExplorerJob) => void;
 };
 
-export function JobCard({ job, className, onEnterPanel }: Props) {
+export function JobCard({
+  job,
+  className,
+  selected = false,
+  saved = false,
+  onSelect,
+  onSave,
+  onOptimize,
+}: Props) {
   return (
-    <div
+    <button
+      type="button"
+      onClick={() => onSelect(job)}
       className={cn(
-        "flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-md transition-shadow hover:shadow-lg sm:flex-row sm:items-stretch sm:justify-between",
+        "w-full rounded-[1.75rem] border border-sky-100 bg-white/90 p-5 text-left shadow-[0_12px_32px_rgba(59,130,246,0.08)] transition hover:-translate-y-0.5 hover:border-sky-200",
+        selected && "border-sky-300 shadow-[0_20px_44px_rgba(59,130,246,0.16)]",
         className,
       )}
     >
-      <div className="flex min-w-0 flex-1 gap-3">
-        <div
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted"
-          aria-hidden
-        >
-          <Building2 className="h-6 w-6 text-muted-foreground" />
+      <div className="space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
+            <Building2 className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-lg font-semibold tracking-[-0.03em] text-foreground">
+                {job.title}
+              </p>
+              <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] text-sky-700">
+                {job.platform}
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground">{job.company}</p>
+          </div>
+          <p className="text-sm font-semibold text-foreground">{job.salary}</p>
         </div>
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium text-foreground">{job.company}</span>
-            <Badge
-              variant="secondary"
-              className="border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-100"
-            >
-              {job.platform}
-            </Badge>
-          </div>
-          <div className="space-y-1">
-            <p className="text-base font-bold leading-tight text-foreground">
-              {job.title}
-            </p>
-            {job.url &&
-              /^https?:\/\//i.test(job.url) &&
-              (job.platform === "BOSS直聘" ||
-                job.url.includes("zhipin.com")) && (
-                <a
-                  href={job.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  打开 BOSS 详情页
-                </a>
-              )}
-          </div>
-          <p className="text-xs text-muted-foreground">{job.city}</p>
-          <div className="flex flex-wrap gap-2 pt-1 text-xs text-muted-foreground">
-            <span className="rounded-md bg-muted px-2 py-0.5">
-              学历 {job.education}
-            </span>
-            <span className="rounded-md bg-muted px-2 py-0.5">
-              经验 {job.experience}
-            </span>
-          </div>
-          <p className="pt-1 text-xs text-muted-foreground">
-            AI 评分：
-            <span className="font-medium text-foreground">
-              {job.score}
-            </span>{" "}
-            分（占位）
-          </p>
-        </div>
-      </div>
 
-      <div className="flex shrink-0 flex-col items-stretch justify-between gap-3 sm:items-end sm:text-right">
-        <p className="text-lg font-semibold text-orange-600 dark:text-orange-400">
-          {job.salary}
-        </p>
-        <Button
-          type="button"
-          variant="default"
-          className="sm:min-w-[10rem]"
-          onClick={() => onEnterPanel(job)}
-        >
-          进入定制面板
-        </Button>
+        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+          <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">
+            {job.city}
+          </span>
+          <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">
+            {job.experience}
+          </span>
+          <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">
+            {job.education}
+          </span>
+          <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">
+            {job.companySize}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={saved ? "secondary" : "outline"}
+            className="rounded-full"
+            onClick={(event) => {
+              event.stopPropagation();
+              onSave(job);
+            }}
+          >
+            {saved ? <Check className="mr-1.5 h-4 w-4" /> : null}
+            {saved ? "已加入看板" : "加入内容管理"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="rounded-full bg-sky-600 text-white hover:bg-sky-700"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOptimize(job);
+            }}
+          >
+            <Sparkles className="mr-1.5 h-4 w-4" />
+            进入简历优化
+          </Button>
+        </div>
       </div>
-    </div>
+    </button>
   );
 }

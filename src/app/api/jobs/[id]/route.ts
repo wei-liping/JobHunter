@@ -4,6 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { JobPlatform } from "@/generated/prisma/enums";
 import { Prisma } from "@/generated/prisma/client";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const patchBody = z.object({
   title: z.string().min(1).optional(),
   company: z.string().min(1).optional(),

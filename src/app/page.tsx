@@ -1,40 +1,92 @@
-import { JobExplorerPage } from "@/components/job-explorer/JobExplorerPage";
-import { AiConfigDialog } from "@/components/ai-config-dialog";
-import { BrandMark } from "@/components/brand-mark";
-import { HomeApplicationsSidebar } from "@/components/home-applications-sidebar";
+import Link from "next/link";
+import { BriefcaseBusiness, ClipboardList, FolderKanban, MessagesSquare } from "lucide-react";
+import { AppShell } from "@/components/app-shell";
+
+const cards = [
+  {
+    href: "/explore",
+    emoji: "🔎",
+    title: "岗位探索",
+    subtitle: "连接本机 BOSS 搜索",
+    description: "搜索职位、查看 JD、挑选值得继续跟进的岗位，并决定是否加入职位看板。",
+    icon: BriefcaseBusiness,
+  },
+  {
+    href: "/resume",
+    emoji: "📝",
+    title: "简历优化",
+    subtitle: "评估、润色、开场白",
+    description: "围绕目标岗位完成 AI 评估、简历润色与开场白生成，并按需保存新版本。",
+    icon: ClipboardList,
+  },
+  {
+    href: "/interview",
+    emoji: "🎙️",
+    title: "模拟面试",
+    subtitle: "纯文本多轮对话",
+    description: "选择岗位与简历开始模拟问答，历史对话会自动进入内容管理。",
+    icon: MessagesSquare,
+  },
+  {
+    href: "/content",
+    emoji: "🗂️",
+    title: "内容管理",
+    subtitle: "岗位、简历、投递、面试、复盘",
+    description: "集中查看职位看板、简历版本、投递进展，以及后续复盘记录。",
+    icon: FolderKanban,
+  },
+] as const;
 
 export default function HomePage() {
   return (
-    <div className="flex min-h-screen flex-col bg-muted/30">
-      <header className="border-b bg-background px-6 py-4">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <div className="flex items-center gap-3">
-            <BrandMark />
-            <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
-              <span className="text-lg font-semibold">JobHunter AI</span>
-              <span className="text-sm text-muted-foreground">
-                智能求职工作台
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">
-              选岗位 · 进工作台处理投递
-            </span>
-            <AiConfigDialog />
+    <AppShell
+      className="gap-16"
+      hero={
+        <div className="space-y-8 py-10 text-center sm:py-16">
+          <p className="text-sm text-muted-foreground">你的 AI 求职助手</p>
+          <div className="space-y-4">
+            <h1 className="text-4xl font-semibold tracking-[-0.06em] text-foreground sm:text-6xl">
+              Job Hunter
+              <span className="mx-3 text-sky-200">—</span>
+              求职全链路工作台
+            </h1>
+            <p className="mx-auto max-w-2xl text-base leading-8 text-muted-foreground sm:text-xl">
+              从找岗位、改简历，到模拟面试和内容沉淀，放到一套更清晰、更轻量的流程里。
+            </p>
           </div>
         </div>
-      </header>
-      <main className="mx-auto w-full max-w-7xl flex-1 p-6">
-        <div className="grid gap-8 lg:grid-cols-[1fr_320px] xl:grid-cols-[1fr_360px]">
-          <div className="min-w-0">
-            <JobExplorerPage />
-          </div>
-          <aside className="min-w-0 lg:self-start">
-            <HomeApplicationsSidebar />
-          </aside>
-        </div>
-      </main>
-    </div>
+      }
+    >
+      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+        {cards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <Link
+              key={card.href}
+              href={card.href}
+              className="group rounded-[2rem] border border-sky-100 bg-white/88 p-6 shadow-[0_12px_36px_rgba(59,130,246,0.08)] transition duration-200 hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-[0_18px_48px_rgba(59,130,246,0.14)]"
+            >
+              <div className="space-y-6">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <h2 className="text-2xl font-semibold tracking-[-0.03em] text-foreground">
+                      <span className="mr-2 text-[0.9em]">{card.emoji}</span>
+                      {card.title}
+                    </h2>
+                    <p className="text-sm text-muted-foreground">{card.subtitle}</p>
+                  </div>
+                  <p className="text-sm leading-7 text-muted-foreground">
+                    {card.description}
+                  </p>
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </section>
+    </AppShell>
   );
 }

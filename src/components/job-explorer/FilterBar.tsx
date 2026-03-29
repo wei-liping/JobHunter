@@ -36,11 +36,13 @@ const CITY_OPTIONS = [
   { label: "上海", value: "101020100" },
   { label: "杭州", value: "101210100" },
 ] as const;
+const RESULT_LIMITS = [5, 10, 20] as const;
 
 export type FilterState = {
   query: string;
   platform: JobPlatform | "全部";
   cityCode: string;
+  resultLimit: (typeof RESULT_LIMITS)[number];
   education: (typeof EDUCATION)[number];
   experience: (typeof EXPERIENCE)[number];
   companySize: (typeof COMPANY_SIZE)[number];
@@ -165,6 +167,22 @@ export function FilterBar({
               </option>
             ))}
           </select>
+          <select
+            className={selectClass}
+            value={String(value.resultLimit)}
+            onChange={(e) =>
+              patch({
+                resultLimit: Number(e.target.value) as FilterState["resultLimit"],
+              })
+            }
+            aria-label="结果数量"
+          >
+            {RESULT_LIMITS.map((x) => (
+              <option key={x} value={x}>
+                每次最多 {x} 条
+              </option>
+            ))}
+          </select>
           <Button
             type="button"
             variant="default"
@@ -176,10 +194,11 @@ export function FilterBar({
           </Button>
         </div>
       </div>
-      <div className="flex items-center justify-end border-t pt-3 text-sm text-muted-foreground">
+      <div className="flex items-center justify-between gap-3 border-t pt-3 text-sm text-muted-foreground">
+        <span>当前搜索上限 {value.resultLimit} 条</span>
         共{" "}
-        <span className="mx-1 font-medium text-foreground">{resultCount}</span>{" "}
-        个职位
+        <span className="font-medium text-foreground">{resultCount}</span>
+        <span>个职位</span>
       </div>
     </div>
   );

@@ -3,12 +3,17 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ApplicationStatus } from "@/generated/prisma/enums";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const createBody = z.object({
   jobId: z.string().min(1),
   resumeId: z.string().min(1),
   status: z
     .enum(["NEW", "SCORED_HIGH", "SCORED_LOW", "REVIEWED", "READY_TO_APPLY"])
     .optional(),
+  reviewNotes: z.string().optional(),
+  reviewSummary: z.string().optional(),
 });
 
 export async function GET() {
@@ -20,18 +25,36 @@ export async function GET() {
       scores: { orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
-  return NextResponse.json(applications);
+  return NextResponse.json(applications, {
+    headers: { "Cache-Control": "no-store, max-age=0" },
+  });
 }
 
 export async function POST(req: Request) {
   try {
     const json = await req.json();
     const data = createBody.parse(json);
+    const existing = await prisma.application.findFirst({
+      where: {
+        jobId: data.jobId,
+        resumeId: data.resumeId,
+      },
+      include: {
+        job: true,
+        resume: true,
+        scores: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
+    });
+    if (existing) {
+      return NextResponse.json(existing);
+    }
     const application = await prisma.application.create({
       data: {
         jobId: data.jobId,
         resumeId: data.resumeId,
         status: (data.status ?? ApplicationStatus.NEW) as ApplicationStatus,
+        reviewNotes: data.reviewNotes,
+        reviewSummary: data.reviewSummary,
       },
       include: { job: true, resume: true },
     });

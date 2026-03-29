@@ -7,6 +7,13 @@ export type ScoringResult = {
   hitKeywords: string[];
   missingKeywords: string[];
   weakPoints: string[];
+  gapProjects: {
+    title: string;
+    goal: string;
+    techStack: string[];
+    deliverables: string[];
+    eta: string;
+  }[];
   summary: string;
 };
 
@@ -52,11 +59,15 @@ export async function runJobScoring(
       hitKeywords: [],
       missingKeywords: [],
       weakPoints: ["模型返回结果不可解析，请重试"],
+      gapProjects: [],
       summary: "评分解析失败，请重试。",
     };
   }
   if (typeof parsed.matchScore !== "number") {
     parsed.matchScore = 0;
+  }
+  if (!Array.isArray(parsed.gapProjects)) {
+    parsed.gapProjects = [];
   }
   parsed.matchScore = Math.min(100, Math.max(0, Math.round(parsed.matchScore)));
   return parsed;
