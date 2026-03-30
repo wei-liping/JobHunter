@@ -55,3 +55,7 @@ next-env.d.ts
 tools/boss_zhipin_crawl/chrome_profile/
 tools/boss_zhipin_crawl/.venv/
 tools/boss_zhipin_crawl/boss_out/
+
+# local-only reference assets
+offering_ui/
+workflow_example_images/
