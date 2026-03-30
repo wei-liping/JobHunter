@@ -24,6 +24,15 @@ export function JobCard({
   onSave,
   onOptimize,
 }: Props) {
+  const detailHint =
+    job.detailStatus === "pending"
+      ? "正在补充职位详情"
+      : job.detailStatus === "page_fallback"
+        ? "详情来自页面补抓"
+        : job.detailStatus && job.detailStatus !== "detail_ok"
+          ? "详情暂未补全"
+          : null;
+
   return (
     <button
       type="button"
@@ -66,6 +75,11 @@ export function JobCard({
           <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">
             {job.companySize}
           </span>
+          {detailHint ? (
+            <span className="rounded-full border border-sky-100 bg-white px-2.5 py-1 text-sky-700">
+              {detailHint}
+            </span>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

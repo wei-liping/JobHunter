@@ -1,174 +1,221 @@
-# JobHunter AI
+# JobHunter
 
-JobHunter AI 是一个面向真实求职流程的 AI 工作台。它把「岗位信息进入系统 → 匹配判断 → 简历定制 → 开场白生成 → 导出投递材料」串成一条连续链路，减少在截图、文档、聊天窗口和表格之间反复切换。
+JobHunter 是一个面向真实求职流程的本地工作台。  
+它把「找岗位 → 看 JD → 改简历 → 生成开场白 → 模拟面试 → 沉淀内容」放进同一套界面里，减少在招聘网站、文档、聊天窗口和表格之间来回切换。
 
-## 这项目解决什么问题
+## 当前产品形态
 
-常见求职流程里，岗位信息、原始简历、改写版本、开场白和投递状态往往分散在不同工具里。JobHunter AI 的目标不是只做一个单点生成器，而是把这些动作放进同一套工作台里，帮助用户更快完成一次完整投递。
+当前版本已经整理成 4 个独立栏目：
 
-## 核心能力
+- `岗位探索`：连接本机 BOSS 搜索，查看岗位详情，决定是否加入职位看板
+- `简历优化`：围绕目标岗位做 AI 评估、简历润色、开场白生成
+- `模拟面试`：选择岗位和简历，开始纯文本多轮问答
+- `内容管理`：集中查看岗位、简历、投递、面试记录和复盘
 
-- 职位截图识别，提取结构化岗位信息
-- AI 匹配评分，输出命中项、缺失项和弱项总结
-- 基于目标岗位改写简历，生成结构化 Markdown
-- 生成中文开场白，适配直接沟通场景
-- 管理投递状态，保留岗位、简历和投递记录
-- 导出 PDF、Word、Markdown
+首页只负责导航，不再把所有内容堆在一个工作台里。
+
+## 这套工具现在适合谁
+
+它更适合下面这种使用方式：
+
+- 你在本机浏览器里已经登录招聘网站
+- 你希望先快速搜一批岗位，再决定要不要继续跟进
+- 你希望针对某个岗位生成一版更贴近目标的简历
+- 你想把岗位、简历版本、投递记录和面试过程都留在一个地方
+
+当前定位是**单人本地使用**，不是线上多用户产品。
 
 ## 主流程
 
-1. 录入岗位：支持手动填写、截图识别，或本地实验抓取
-2. 进入工作台：关联岗位与原始简历
-3. 运行 AI：拿到匹配分、定制简历和开场白
-4. 审阅后导出：输出可投递的最终材料
+### 1. 在岗位探索里找岗位
+
+输入关键词后，系统会连接你本机的 BOSS 会话，把搜索结果直接展示出来。  
+你可以先浏览岗位，再决定：
+
+- 加入内容管理里的职位看板
+- 直接进入简历优化
+
+### 2. 在简历优化里围绕目标岗位准备材料
+
+简历优化页会围绕选中的岗位展开，当前支持：
+
+- AI 评估：输出匹配分数、已覆盖、缺失点、薄弱点和建议补充的小项目
+- 简历润色：按更自然的叙事方式生成岗位定制版本
+- 开场白：生成适合直接沟通的中文开场白
+
+简历内容可以这样进入系统：
+
+- 手动粘贴或编辑 Markdown
+- 从内容管理里选择历史简历版本
+- 粘贴截图
+- 上传本地图片或 PDF，识别后转成 Markdown
+
+当前简历的主要导出方式是 **Markdown**。  
+润色结果可以另存为新的简历版本。
+
+### 3. 在模拟面试里做针对性练习
+
+先选一个岗位，再选一份简历，然后开始文字模拟面试。  
+每轮问答都会继续写回系统，方便后续复盘。
+
+### 4. 在内容管理里沉淀资产
+
+内容管理是整个流程的收口位置，目前分成 5 个页签：
+
+- `岗位库`
+- `简历库`
+- `投递进展`
+- `面试记录`
+- `复盘记录`
+
+这里可以继续查看 JD、改简历标题、删除旧版本、记录投递状态和复盘内容。
 
 ## 界面预览
 
-### 1. 岗位探索与投递入口
+### 首页
 
-![岗位探索首页](workflow_example_images/public/1首页-公开版.png)
+用四张卡片把整条求职流程拆开，入口更清楚。
 
-### 2. 准备材料：上传简历并整理岗位信息
+![首页](workflow-images/首页.png)
 
-![准备材料页](workflow_example_images/public/2准备材料-公开版.png)
+### 岗位探索
 
-### 3. 智能工作台：评估、润色与导出
+从本机 BOSS 搜索结果进入系统，先看岗位，再决定是否进入后续流程。
 
-![简历评估与润色](workflow_example_images/public/3A简历评估与润色-公开版.jpg)
+![岗位探索](workflow-images/岗位探索.png)
 
-![简历润色与开场白](workflow_example_images/public/3B简历润色与开场白-公开版.jpg)
+### 简历优化：评估
 
-## 技术概览
+先判断当前简历和目标岗位之间的贴合度，明确已覆盖、缺失点和短板。
 
-- Next.js 14
-- Tailwind + shadcn/ui
-- Prisma + PostgreSQL
-- OpenAI 兼容 API
-- Playwright / 本地爬虫（可选）
+![简历优化-评估A](workflow-images/简历优化-评估A.png)
+
+![简历优化-评估B](workflow-images/简历优化-评估B.png)
+
+### 简历优化：润色
+
+把简历改成更适合真实投递的版本，并支持保存成新的历史版本。
+
+![简历优化-润色](workflow-images/简历优化-润色.png)
+
+### 模拟面试
+
+围绕具体岗位和具体简历做多轮文本问答，便于练习和复盘。
+
+![模拟面试](workflow-images/模拟面试.png)
+
+### 内容管理
+
+把岗位、简历、投递、面试和复盘集中收口，后续查看更方便。
+
+![内容管理](workflow-images/内容管理.png)
 
 ## 本地运行
 
-1. 安装依赖
+### 1. 安装依赖
 
-   ```bash
-   npm install
-   ```
+```bash
+npm install
+```
 
-2. 复制环境变量
+### 2. 准备环境变量
 
-   ```bash
-   cp .env.example .env
-   ```
+```bash
+cp .env.example .env
+```
 
-3. 启动数据库
+### 3. 启动本地数据库
 
-   ```bash
-   docker compose up -d
-   ```
+```bash
+docker compose up -d
+```
 
-4. 初始化数据库
+### 4. 初始化数据库
 
-   ```bash
-   npm run db:push
-   ```
+```bash
+npm run db:push
+```
 
-5. 启动开发服务
+### 5. 启动开发环境
 
-   ```bash
-   npm run dev
-   ```
-
-6. 如需使用网页抓取，再安装 Playwright 浏览器
-
-   ```bash
-   npx playwright install chromium
-   ```
+```bash
+npm run dev
+```
 
 浏览器打开 [http://localhost:3000](http://localhost:3000)。
 
-## 环境变量
+## 模型配置
 
-复制 `.env.example` 为 `.env`，填写：
+当前最推荐的方式，是直接用页面右上角的 `API` 设置按钮填写：
 
-- `DATABASE_URL` — PostgreSQL 连接串
-- `OPENAI_API_KEY` — OpenAI 或兼容服务的 Key
-- 可选 `OPENAI_BASE_URL`
-- 可选 `OPENAI_MODEL`
-- `ALLOWED_AI_BASE_URLS` — 允许的 Base URL 白名单
-- 可选 `JOBHUNTER_ADMIN_TOKEN` — 保护 AI 连通性测试和飞书集成接口
-- 可选 `JOBHUNTER_ALLOW_LOCAL_CRAWL=1` — 非 `development` 时仍允许本地抓取
-- 可选 `JOBHUNTER_CRAWL_PYTHON` — 覆盖本地爬虫使用的 Python 可执行文件路径
-- 可选飞书同步层：`FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_BITABLE_APP_TOKEN`、`FEISHU_BITABLE_TABLE_ID`、`FEISHU_BOT_WEBHOOK`
+- `API Key`
+- `Base URL`
+- `模型名称`
 
-### 前端 API 设置（本地存储）
+这套配置会保存在你当前浏览器里，适合本地单人使用。
 
-- 页面右上角支持「API 设置」弹窗，可单独填写 `API Key / Base URL / 模型`
-- 配置保存在浏览器 `localStorage`，并在请求时通过请求头透传
-- 后端读取顺序：请求头优先，`.env` 兜底
-- 该方式适合本地单用户调试，不建议在公共终端使用
+如果你更习惯写进 `.env`，常用字段是：
 
-## 核心 API
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
+- `OPENAI_MODEL`
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET/POST | `/api/jobs` | 岗位列表 / 创建 |
-| GET/PATCH/DELETE | `/api/jobs/[id]` | 岗位详情与更新 |
-| GET/POST | `/api/resumes` | 简历列表 / 创建 |
-| GET/PATCH | `/api/resumes/[id]` | 简历读写 |
-| GET/POST | `/api/applications` | 投递列表 / 创建（关联 job + resume） |
-| GET/PATCH/DELETE | `/api/applications/[id]` | 投递与状态 |
-| POST | `/api/applications/[id]/score` | AI 匹配评分 |
-| POST | `/api/applications/[id]/tailor-resume` | STAR 定制简历 JSON |
-| POST | `/api/applications/[id]/cover-letter` | 开场白 |
-| POST | `/api/ai/ping` | 测试当前 AI 配置连通性 |
-| POST | `/api/vision/job-from-image` | 从职位截图识别并提取岗位结构化信息 |
-| POST | `/api/resume-import` | 导入简历（PDF 或图片），提取为 Markdown |
-| GET | `/api/applications/[id]/export/pdf` | 导出 PDF |
-| GET | `/api/applications/[id]/export/docx` | 导出 Word |
-| GET | `/api/applications/[id]/export/md` | 导出 Markdown |
-| POST | `/api/crawler` | Playwright 抓取 `{ url, platform }` |
-| POST | `/api/crawl/local` | 本机子进程跑 `crawl_boss.py`（BOSS；`platform: other` 返回 501） |
-| POST | `/api/integrations/feishu/sync-application` | 同步单条投递到飞书多维表 |
-| POST | `/api/integrations/feishu/sync-report` | 发送轻量报表到飞书机器人 |
-| POST | `/api/integrations/feishu/notify` | 发送自定义通知到飞书机器人 |
+兼容 OpenAI 风格接口的服务都可以接进来，比如豆包、千问、DeepSeek 等。
 
-## 状态流转（Application）
+## 数据存储说明
 
-`new` →（评分）→ `scored_high` / `scored_low` → 可手动 `reviewed` → `ready_to_apply`。
+当前项目里，数据大致分成两类：
 
-## 说明
+- `岗位正文 / 简历正文 / 投递记录 / 面试记录`：存到本地 PostgreSQL
+- `右上角 API 设置`：存到浏览器本地
 
-- **PDF 导出**：若存在 `resume-template/` 且机器已安装 `xelatex`，系统会优先使用 LaTeX 模板导出；抬头姓名和联系方式会尽量从简历 Markdown 顶部提取，提取不到时使用通用占位。若 LaTeX 失败则回退到 jsPDF。响应头 `X-Resume-Export-Mode` 为 `xelatex-template` 或 `jspdf-fallback`；调试时可在 URL 加 `?debug=1`，失败时返回 JSON 错误而非 PDF。
-- **截图识别（Vision）**：需要在「API 设置」里选择支持图片输入的模型；不同供应商模型命名不同，若不支持会返回友好错误。
-- **简历导入**：PDF 若为扫描件可能无法解析出文本，请改用图片上传（走 Vision）或先做 OCR。
-- **抓取（可选）**：各平台 DOM 与登录策略变化快，且常受反爬影响；当前主流程推荐用截图识别替代。BOSS 本地实验抓取见 [tools/boss_zhipin_crawl/README.md](tools/boss_zhipin_crawl/README.md)，仅 `development` 或 `JOBHUNTER_ALLOW_LOCAL_CRAWL=1` 下可用。请自用低频并自行遵守平台条款。
-- **飞书定位**：飞书仅作为同步层（看板、通知、轻报表），主数据仍以 PostgreSQL 为准。
+也就是说：
 
-## Resume LaTeX Export Workflow (Skill Spec)
+- 岗位和简历不是只放在浏览器缓存里
+- 也不是默认落到仓库里的某个 Markdown 文件夹
 
-当你需要高质量简历排版（尤其中文 PDF）时，建议使用「Markdown 作为源 + Pandoc/LaTeX 编译」流程，而不是继续深度定制 jsPDF/docx API。
+## BOSS 本地搜索说明
 
-触发场景：
-- 需要 `导出 markdown` / `导出 md`
-- 反馈 `导出 pdf 乱码`
-- 需要复用现有 LaTeX 模板
-- 希望在 Cursor/Claude Code 中复现同一套导出动作
+岗位探索里的 BOSS 搜索走的是**本地模式**。  
+它依赖你本机已经可用的浏览器工具和当前登录状态。
 
-标准流程：
-1. 从系统导出 `resume.md`（优先使用 tailored 内容）。
-2. 准备模板目录：`template.tex`（可选 `metadata.yml`）。
-3. 编译 PDF：
-   - `pandoc resume.md -o resume.pdf --template=template.tex --pdf-engine=xelatex`
-4. 可选编译 DOCX：
-   - `pandoc resume.md -o resume.docx`
-5. 检查输出：中文不乱码、层级与间距稳定、列表不丢失。
+使用前提：
 
-中文排版规则：
-- 优先 `xelatex`（或 `lualatex`）。
-- 字体配置放在 `template.tex`，避免依赖临时命令行参数。
-- 若缺字/乱码，切换到本机可用 CJK 字体后重编译。
+- 本机已安装并可直接调用 `bb-browser`
+- 你当前浏览器里已经登录 BOSS
+- 需要本地运行项目，不适合直接拿去做线上部署
+
+当前搜索行为：
+
+- 按你输入的原始关键词搜索，不再自动改写关键词
+- 默认先展示 30 条
+- 可以继续加载更多
+- 结果会尽量贴近 BOSS 当前搜索页，但不保证和官网每次都完全一致
+
+如果你要在非开发模式下仍允许本地搜索，可以设置：
+
+- `JOBHUNTER_ALLOW_LOCAL_CRAWL=1`
+
+## 常用接口
+
+README 不再展开所有接口，只保留最常用的几个入口：
+
+- `GET /api/crawl/local/stream`：岗位探索的实时本地搜索
+- `POST /api/crawl/local`：岗位探索的同步本地搜索
+- `GET /api/jobs`：岗位数据
+- `GET /api/resumes`：简历版本
+- `GET /api/interviews`：模拟面试记录
+
+## 当前限制与注意事项
+
+- BOSS 搜索是本地浏览器模式，不是线上稳定抓取方案
+- 搜索结果会尽量贴近原站，但不会承诺每次和官网完全一模一样
+- 图片 / PDF 导入效果取决于你当前使用的模型是否支持识别
+- 当前更适合单人本地工作流，不是多用户协作系统
+- 内容很多时，建议主动清理岗位库和简历库，避免后续选择混乱
 
 ## 构建
+
 ```bash
 npm run build
 npm start

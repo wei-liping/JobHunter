@@ -17,6 +17,7 @@ const bodySchema = z.object({
   keyword: z.string().min(1).max(200),
   platform: z.enum(["boss", "other"]),
   cityCode: z.string().min(1).max(32).optional().default("101280600"),
+  pageStart: z.number().int().min(1).max(200).optional().default(1),
   pages: z
     .number()
     .int()
@@ -78,6 +79,7 @@ export async function POST(req: Request) {
     keyword,
     platform,
     cityCode,
+    pageStart,
     pages,
     maxJobs,
     fetchDetails,
@@ -121,6 +123,8 @@ export async function POST(req: Request) {
     keyword,
     "--city-code",
     cityCode,
+    "--page-start",
+    String(pageStart),
     "--pages",
     String(pages),
     "--max-jobs",

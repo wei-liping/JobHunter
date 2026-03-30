@@ -36,7 +36,7 @@ const CITY_OPTIONS = [
   { label: "上海", value: "101020100" },
   { label: "杭州", value: "101210100" },
 ] as const;
-const RESULT_LIMITS = [5, 10, 20] as const;
+const RESULT_LIMITS = [10, 30, 60] as const;
 
 export type FilterState = {
   query: string;

@@ -19,6 +19,7 @@ const querySchema = z.object({
   keyword: z.string().min(1).max(200),
   platform: z.enum(["boss", "other"]).default("boss"),
   cityCode: z.string().min(1).max(32).default("101280600"),
+  pageStart: z.coerce.number().int().min(1).max(200).default(1),
   pages: z.coerce.number().int().min(1).max(20).default(DEFAULT_CRAWL_PAGES),
   maxJobs: z.coerce
     .number()
@@ -85,6 +86,7 @@ export async function GET(req: Request) {
     keyword: url.searchParams.get("keyword") ?? "",
     platform: url.searchParams.get("platform") ?? "boss",
     cityCode: url.searchParams.get("cityCode") ?? "101280600",
+    pageStart: url.searchParams.get("pageStart") ?? "1",
     pages: url.searchParams.get("pages") ?? String(DEFAULT_CRAWL_PAGES),
     maxJobs: url.searchParams.get("maxJobs") ?? String(DEFAULT_MAX_JOBS),
     fetchDetails: url.searchParams.get("fetchDetails") ?? "true",
@@ -107,7 +109,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const { keyword, platform, cityCode, pages, maxJobs } = parsed.data;
+  const { keyword, platform, cityCode, pageStart, pages, maxJobs } = parsed.data;
   const fetchDetails = parsed.data.fetchDetails ?? true;
 
   if (platform === "other") {
@@ -138,6 +140,7 @@ export async function GET(req: Request) {
               mode: "bb-site",
               keyword,
               cityCode,
+              pageStart,
               pages,
               maxJobs,
               fetchDetails,
@@ -192,6 +195,8 @@ export async function GET(req: Request) {
     keyword,
     "--city-code",
     cityCode,
+    "--page-start",
+    String(pageStart),
     "--pages",
     String(pages),
     "--max-jobs",
@@ -211,18 +216,26 @@ export async function GET(req: Request) {
         env: { ...process.env, JOBHUNTER_BB_BROWSER_BIN: bbBrowser },
       });
       let sawDone = false;
+      let closed = false;
+
+      const pushEvent = (event: string, data: unknown) => {
+        if (closed) return;
+        controller.enqueue(encoder.encode(sseLine(event, data)));
+      };
+
+      const closeStream = () => {
+        if (closed) return;
+        closed = true;
+        controller.close();
+      };
 
       const onAbort = () => {
         child.kill("SIGTERM");
-        controller.enqueue(
-          encoder.encode(
-            sseLine("done", {
-              aborted: true,
-              message: "client disconnected",
-            }),
-          ),
-        );
-        controller.close();
+        pushEvent("done", {
+          aborted: true,
+          message: "client disconnected",
+        });
+        closeStream();
       };
       req.signal.addEventListener("abort", onAbort);
 
@@ -239,7 +252,7 @@ export async function GET(req: Request) {
           if (evt.event === "done") {
             sawDone = true;
           }
-          controller.enqueue(encoder.encode(sseLine(evt.event, evt.data)));
+          pushEvent(evt.event, evt.data);
         }
       });
 
@@ -252,42 +265,30 @@ export async function GET(req: Request) {
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed) continue;
-          controller.enqueue(
-            encoder.encode(
-              sseLine("log", {
-                stream: "stderr",
-                line: trimmed,
-              }),
-            ),
-          );
+          pushEvent("log", {
+            stream: "stderr",
+            line: trimmed,
+          });
         }
       });
 
       child.on("error", (err) => {
-        controller.enqueue(
-          encoder.encode(
-            sseLine("error", {
-              stage: "spawn",
-              message: err.message,
-            }),
-          ),
-        );
+        pushEvent("error", {
+          stage: "spawn",
+          message: err.message,
+        });
       });
 
       child.on("close", (code, signal) => {
         req.signal.removeEventListener("abort", onAbort);
         if (!sawDone) {
-          controller.enqueue(
-            encoder.encode(
-              sseLine("done", {
-                exitCode: code,
-                signal,
-                ok: code === 0,
-              }),
-            ),
-          );
+          pushEvent("done", {
+            exitCode: code,
+            signal,
+            ok: code === 0,
+          });
         }
-        controller.close();
+        closeStream();
       });
     },
   });

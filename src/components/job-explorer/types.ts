@@ -13,4 +13,6 @@ export type ExplorerJob = {
   score: number;
   /** BOSS 详情页 URL，抓取入库后可能有 */
   url?: string | null;
+  detailStatus?: string;
+  order?: number;
 };

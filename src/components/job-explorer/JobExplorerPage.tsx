@@ -51,43 +51,15 @@ type SearchErrorPayload = {
   error?: string;
   message?: string;
   exitCode?: number | null;
+  searchKeyword?: string;
+  pageStart?: number;
+  actualPagesRead?: number;
+  lastPageRead?: number;
+  returnedJobs?: number;
+  detailedJobs?: number;
+  incompleteDetails?: number;
+  jobs?: unknown[];
 };
-
-function mapPlatform(platform: JobsApiItem["platform"]): JobPlatform {
-  if (platform === "JOB51") return "51job";
-  if (platform === "LIEPIN") return "猎聘";
-  return "BOSS直聘";
-}
-
-function pickCompanyInfoText(
-  info: unknown,
-  keys: string[],
-  fallback: string,
-): string {
-  if (!info || typeof info !== "object") return fallback;
-  const dict = info as Record<string, unknown>;
-  for (const key of keys) {
-    const value = dict[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return fallback;
-}
-
-function mapJobFromApi(item: JobsApiItem): ExplorerJob {
-  return {
-    id: item.id,
-    title: item.title,
-    company: item.company,
-    url: item.url ?? null,
-    salary: item.salary ?? "薪资面议",
-    city: pickCompanyInfoText(item.companyInfo, ["city", "location"], "未知城市"),
-    experience: pickCompanyInfoText(item.companyInfo, ["experience", "workYear"], "不限"),
-    education: pickCompanyInfoText(item.companyInfo, ["education", "degree"], "不限"),
-    companySize: pickCompanyInfoText(item.companyInfo, ["size", "companySize"], "不限"),
-    platform: mapPlatform(item.platform),
-    score: 0,
-  };
-}
 
 function matchesFilters(job: ExplorerJob, f: FilterState): boolean {
   const q = f.query.trim().toLowerCase();
@@ -116,6 +88,8 @@ export function JobExplorerPage() {
   const sseRef = useRef<EventSource | null>(null);
   const sseFirstEventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistedIdByStreamRef = useRef<Record<string, string>>({});
+  const selectedJobIdRef = useRef<string | null>(null);
+  const lastPageReadRef = useRef<number>(0);
 
   const filtered = useMemo(
     () => jobs.filter((job) => matchesFilters(job, filters)),
@@ -130,6 +104,10 @@ export function JobExplorerPage() {
     null;
 
   useEffect(() => {
+    selectedJobIdRef.current = selectedJobId;
+  }, [selectedJobId]);
+
+  useEffect(() => {
     return () => {
       if (sseRef.current) {
         sseRef.current.close();
@@ -141,8 +119,8 @@ export function JobExplorerPage() {
   }, []);
 
   function resolveSearchPages(resultLimit: number): number {
-    if (resultLimit <= 10) return DEFAULT_CRAWL_PAGES;
-    return Math.min(3, Math.ceil(resultLimit / 10));
+    if (resultLimit <= 15) return DEFAULT_CRAWL_PAGES;
+    return Math.min(6, Math.ceil(resultLimit / 15));
   }
 
   const loadSavedJobs = useCallback(async () => {
@@ -211,17 +189,49 @@ export function JobExplorerPage() {
     return false;
   }
 
-  function mergeIncomingJobs(incoming: ExplorerJob[]) {
+  function mergeIncomingJobs(
+    incoming: ExplorerJob[],
+    options?: {
+      append?: boolean;
+    },
+  ) {
     setJobs((prev) => {
-      const seen = new Set(prev.map((job) => job.id));
       const next = [...prev];
+      const indexById = new Map(next.map((job, index) => [job.id, index]));
+      let nextOrder = next.reduce(
+        (max, job) => Math.max(max, job.order ?? -1),
+        -1,
+      ) + 1;
       for (const job of incoming) {
-        if (!seen.has(job.id)) {
-          seen.add(job.id);
-          next.unshift(job);
+        const normalizedId = persistedIdByStreamRef.current[job.id] ?? job.id;
+        const normalizedJob = normalizedId === job.id ? job : { ...job, id: normalizedId };
+        const existingIndex = indexById.get(normalizedJob.id);
+        if (existingIndex === undefined) {
+          next.push(
+            options?.append
+              ? {
+                  ...normalizedJob,
+                  order: nextOrder++,
+                }
+              : normalizedJob,
+          );
+          indexById.set(normalizedJob.id, next.length - 1);
+        } else {
+          next[existingIndex] = options?.append
+            ? {
+                ...next[existingIndex],
+                ...normalizedJob,
+                order: next[existingIndex].order,
+              }
+            : { ...next[existingIndex], ...normalizedJob };
         }
       }
-      return next;
+      return next.sort((left, right) => {
+        const leftOrder = left.order ?? Number.MAX_SAFE_INTEGER;
+        const rightOrder = right.order ?? Number.MAX_SAFE_INTEGER;
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+        return 0;
+      });
     });
   }
 
@@ -248,6 +258,8 @@ export function JobExplorerPage() {
           : "BOSS直聘",
       score: typeof data.score === "number" ? data.score : 0,
       url: typeof data.url === "string" && data.url.trim() ? data.url.trim() : null,
+      detailStatus: typeof data.detailStatus === "string" ? data.detailStatus : "",
+      order: typeof data.order === "number" ? data.order : undefined,
     };
   }
 
@@ -305,6 +317,7 @@ export function JobExplorerPage() {
   async function runSearch(options?: {
     resultLimit?: number;
     replaceNotice?: string;
+    append?: boolean;
   }) {
     if (!filters.query.trim()) {
       setNotice("请输入关键词后再搜索。");
@@ -317,13 +330,24 @@ export function JobExplorerPage() {
 
     const resultLimit = options?.resultLimit ?? filters.resultLimit;
     const pages = resolveSearchPages(resultLimit);
+    const append = options?.append ?? false;
+    const pageStart = append ? lastPageReadRef.current + 1 : 1;
     setSetupHelp(null);
     setSearched(true);
     setLoading(true);
-    setNotice(options?.replaceNotice ?? "正在连接本机 BOSS，会把结果直接更新到列表里。");
-    setJobs([]);
-    setSelectedJobId(null);
-    setSelectedJobDetail(null);
+    setNotice(
+      options?.replaceNotice ??
+        (append
+          ? `正在追加更多结果，目标显示 ${resultLimit} 条。`
+          : "正在连接本机 BOSS，会把结果直接更新到列表里。"),
+    );
+    if (!append) {
+      setJobs([]);
+      setSelectedJobId(null);
+      setSelectedJobDetail(null);
+      persistedIdByStreamRef.current = {};
+      lastPageReadRef.current = 0;
+    }
 
     if (sseRef.current) {
       sseRef.current.close();
@@ -344,8 +368,9 @@ export function JobExplorerPage() {
             keyword: filters.query.trim(),
             platform: "boss",
             cityCode: filters.cityCode,
+            pageStart,
             pages,
-            maxJobs: resultLimit,
+            maxJobs: append ? DEFAULT_MAX_JOBS : resultLimit,
             fetchDetails: true,
           }),
         });
@@ -358,14 +383,24 @@ export function JobExplorerPage() {
           setNotice(body.message ?? body.error ?? "搜索失败。");
           return;
         }
-        const jobsRes = await fetchWithAiHeaders("/api/jobs");
-        if (jobsRes.ok) {
-          const rows = (await jobsRes.json()) as JobsApiItem[];
-          const mapped = rows.map(mapJobFromApi).filter((job) => job.title.includes(filters.query.trim()) || job.company.includes(filters.query.trim()));
+        const rawJobs = Array.isArray(body.jobs) ? body.jobs : [];
+        const mapped = rawJobs
+          .map((item) => parseSseJob(item))
+          .filter((job): job is ExplorerJob => Boolean(job));
+        if (append) {
+          mergeIncomingJobs(mapped, { append: true });
+        } else {
           setJobs(mapped);
-          setSelectedJobId(mapped[0]?.id ?? null);
-          setNotice("搜索完成，结果已经更新。");
+          setSelectedJobId((current) => current ?? mapped[0]?.id ?? null);
         }
+        if (typeof body.lastPageRead === "number") {
+          lastPageReadRef.current = body.lastPageRead;
+        }
+        setNotice(
+          body.ok === false
+            ? body.message ?? "搜索结束，但没有成功返回结果。"
+            : `搜索完成，已显示 ${mapped.length} 条结果。`,
+        );
       } finally {
         setLoading(false);
       }
@@ -375,8 +410,9 @@ export function JobExplorerPage() {
       keyword: filters.query.trim(),
       platform: "boss",
       cityCode: filters.cityCode,
+      pageStart: String(pageStart),
       pages: String(pages),
-      maxJobs: String(resultLimit),
+      maxJobs: String(append ? DEFAULT_MAX_JOBS : resultLimit),
       fetchDetails: "true",
     });
 
@@ -393,7 +429,7 @@ export function JobExplorerPage() {
 
     es.addEventListener("start", () => {
       receivedFirstEvent = true;
-      setNotice("已连接本机 BOSS，会继续补全职位详情。");
+      setNotice(append ? "已连接本机 BOSS，正在追加更多结果。" : "已连接本机 BOSS，会继续补全职位详情。");
     });
 
     es.addEventListener("progress", (event) => {
@@ -407,9 +443,9 @@ export function JobExplorerPage() {
           index?: number;
         };
         if (payload.phase === "list") {
-          setNotice(`正在找职位：第 ${payload.page ?? "-"} / ${payload.pages ?? "-"} 页，已拿到 ${payload.total ?? 0} 条。`);
+          setNotice(`正在读取第 ${payload.page ?? "-"} 页，已拿到 ${payload.total ?? 0} 条结果。`);
         } else if (payload.phase === "detail") {
-          setNotice(`正在补全职位详情：${payload.index ?? 0} / ${payload.total ?? 0}`);
+          setNotice(`列表已到位，正在补充职位详情：${payload.index ?? 0} / ${payload.total ?? 0}`);
         }
       } catch {
         // ignore
@@ -418,10 +454,14 @@ export function JobExplorerPage() {
 
     es.addEventListener("job", (event) => {
       receivedFirstEvent = true;
-      const job = parseSseJob(JSON.parse((event as MessageEvent).data));
+        const job = parseSseJob(JSON.parse((event as MessageEvent).data));
       if (job) {
-        mergeIncomingJobs([job]);
+        mergeIncomingJobs([job], { append });
         setSelectedJobId((current) => current ?? job.id);
+        const selectedId = persistedIdByStreamRef.current[job.id] ?? job.id;
+        if (selectedJobIdRef.current && selectedId === selectedJobIdRef.current) {
+          void loadJobDetail(selectedId);
+        }
       }
     });
 
@@ -468,6 +508,17 @@ export function JobExplorerPage() {
           setNotice(payload.message ?? "搜索结束，但没有成功返回结果。");
           return;
         }
+        if (typeof payload.lastPageRead === "number") {
+          lastPageReadRef.current = payload.lastPageRead;
+        }
+        if (typeof payload.returnedJobs === "number") {
+          const detailText =
+            typeof payload.detailedJobs === "number" && typeof payload.incompleteDetails === "number"
+              ? ` 已补全 ${payload.detailedJobs} 条详情，未补全 ${payload.incompleteDetails} 条。`
+              : "";
+          setNotice(`搜索完成，已显示 ${payload.returnedJobs} 条结果。${detailText}`.trim());
+          return;
+        }
       } catch {
         // ignore malformed payload
       }
@@ -504,13 +555,14 @@ export function JobExplorerPage() {
                   variant="outline"
                   className="rounded-full"
                   onClick={() => {
-                    const nextLimit = Math.min(MAX_JOBS_PER_RUN, filters.resultLimit + 5);
+                    const nextLimit = Math.min(MAX_JOBS_PER_RUN, filters.resultLimit + DEFAULT_MAX_JOBS);
                     setFilters((prev) => ({
                       ...prev,
                       resultLimit: nextLimit as FilterState["resultLimit"],
                     }));
                     void runSearch({
                       resultLimit: nextLimit,
+                      append: true,
                       replaceNotice: `正在继续加载，准备把结果上限提高到 ${nextLimit} 条。`,
                     });
                   }}
@@ -537,18 +589,18 @@ export function JobExplorerPage() {
 
         <aside className="xl:sticky xl:top-28 xl:self-start">
           <div className="rounded-[2rem] border border-sky-100 bg-white/92 p-6 shadow-[0_14px_40px_rgba(59,130,246,0.08)]">
-            {selectedJob && selectedJobDetail ? (
+            {selectedJob ? (
               <div className="space-y-6">
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
                       <h2 className="text-2xl font-semibold tracking-[-0.04em] text-foreground">
-                        {selectedJobDetail.title}
+                        {selectedJobDetail?.title ?? selectedJob.title}
                       </h2>
-                      <p className="text-sm text-muted-foreground">{selectedJobDetail.company}</p>
+                      <p className="text-sm text-muted-foreground">{selectedJobDetail?.company ?? selectedJob.company}</p>
                     </div>
                     <p className="text-lg font-semibold text-foreground">
-                      {selectedJobDetail.salary ?? "薪资面议"}
+                      {selectedJobDetail?.salary ?? selectedJob.salary ?? "薪资面议"}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -556,18 +608,23 @@ export function JobExplorerPage() {
                     <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">{selectedJob.experience}</span>
                     <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">{selectedJob.education}</span>
                     <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">{selectedJob.companySize}</span>
+                    {!selectedJobDetail ? (
+                      <span className="rounded-full border border-sky-100 bg-white px-2.5 py-1 text-sky-700">
+                        正在补充职位详情
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
-                    variant={savedJobIds.has(selectedJobDetail.id) ? "secondary" : "outline"}
+                    variant={savedJobIds.has(selectedJobDetail?.id ?? selectedJob.id) ? "secondary" : "outline"}
                     className="rounded-full"
                     onClick={() => void saveJob(selectedJob)}
                   >
                     <FolderPlus className="mr-1.5 h-4 w-4" />
-                    {savedJobIds.has(selectedJobDetail.id) ? "已在职位看板" : "加入内容管理"}
+                    {savedJobIds.has(selectedJobDetail?.id ?? selectedJob.id) ? "已在职位看板" : "加入内容管理"}
                   </Button>
                   <Button
                     type="button"
@@ -576,9 +633,9 @@ export function JobExplorerPage() {
                   >
                     进入简历优化
                   </Button>
-                  {selectedJobDetail.url ? (
+                  {(selectedJobDetail?.url ?? selectedJob.url) ? (
                     <Button asChild variant="ghost" className="rounded-full">
-                      <a href={selectedJobDetail.url} target="_blank" rel="noreferrer noopener">
+                      <a href={selectedJobDetail?.url ?? selectedJob.url ?? "#"} target="_blank" rel="noreferrer noopener">
                         <ExternalLink className="mr-1.5 h-4 w-4" />
                         打开原链接
                       </a>
@@ -592,12 +649,12 @@ export function JobExplorerPage() {
                   </h3>
                   <div className="max-h-[32rem] overflow-auto rounded-[1.5rem] bg-sky-50/80 p-5">
                     <p className="whitespace-pre-wrap text-sm leading-7 text-foreground">
-                      {selectedJobDetail.jdText}
+                      {selectedJobDetail?.jdText ?? "正在补充职位详情，列表顺序已经按 BOSS 返回结果展示。详情补齐后会自动更新这里。"}
                     </p>
                   </div>
                 </div>
 
-                {selectedJobDetail.requirements?.length ? (
+                {selectedJobDetail?.requirements?.length ? (
                   <div className="space-y-3">
                     <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                       关键要求

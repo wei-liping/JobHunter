@@ -1,7 +1,7 @@
-/** Explorer / API 默认：先给 10 条，可继续加载到 20 条 */
+/** Explorer / API 默认：先给 30 条，可继续加载到 60 条 */
 export const DEFAULT_CRAWL_PAGES = 1;
-export const DEFAULT_MAX_JOBS = 10;
-export const MAX_JOBS_PER_RUN = 20;
+export const DEFAULT_MAX_JOBS = 30;
+export const MAX_JOBS_PER_RUN = 60;
 
 export const DEFAULT_LIST_SLEEP = 10;
 export const DEFAULT_DETAIL_SLEEP = 1;

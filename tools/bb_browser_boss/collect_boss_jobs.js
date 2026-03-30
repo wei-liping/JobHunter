@@ -17,8 +17,9 @@ function parseArgs(argv) {
   const options = {
     keyword: "",
     cityCode: "101280600",
+    pageStart: 1,
     pages: 1,
-    maxJobs: 10,
+    maxJobs: 30,
     importBase: "",
     stream: false,
     fetchDetails: true,
@@ -29,6 +30,9 @@ function parseArgs(argv) {
     const next = argv[index + 1];
     if (arg === "--keyword" && next) {
       options.keyword = next;
+      index += 1;
+    } else if (arg === "--page-start" && next) {
+      options.pageStart = Math.max(1, Number(next) || 1);
       index += 1;
     } else if (arg === "--city-code" && next) {
       options.cityCode = next;
@@ -195,22 +199,11 @@ function isWeakJD(text) {
   return false;
 }
 
-function buildSearchPlans(keyword) {
-  const base = normalizeInline(keyword);
-  if (!base) return [];
-  if (base.includes("本科")) {
-    return [{ label: "exact_query", query: base }];
-  }
-  return [
-    { label: "tight_query", query: `${base} 本科` },
-    { label: "looser_query", query: base },
-  ];
-}
-
 function uniqueJobKey(job) {
   return (
-    normalizeInline(job.securityId) ||
     normalizeInline(job.url) ||
+    normalizeInline(job.job_url) ||
+    normalizeInline(job.securityId) ||
     `${normalizeInline(job.name)}::${normalizeInline(job.company)}::${normalizeInline(job.salary)}`
   );
 }
@@ -228,6 +221,8 @@ function mapDisplayJob(row) {
     platform: "BOSS直聘",
     url: row.job_url || null,
     score: 0,
+    detailStatus: row.crawl_status || "",
+    order: typeof row.order_index === "number" ? row.order_index : undefined,
   };
 }
 
@@ -318,6 +313,35 @@ function toCompanyInfo(row) {
     welfare: row.welfare || [],
     skills: row.skills || [],
     securityId: row.security_id || "",
+    order: typeof row.order_index === "number" ? row.order_index : undefined,
+  };
+}
+
+function buildRowFromListJob(job, keyword, orderIndex) {
+  const listSummary = buildListSummary(job);
+  return {
+    order_index: orderIndex,
+    search_keyword: keyword,
+    city: normalizeInline(job.city),
+    job_name: normalizeInline(job.name),
+    company_name: normalizeInline(job.company),
+    salary: normalizeInline(job.salary),
+    experience: normalizeInline(job.experience),
+    degree: normalizeInline(job.degree),
+    location: normalizeInline(job.city),
+    address: "",
+    skills: Array.isArray(job.skills) ? job.skills : [],
+    welfare: Array.isArray(job.welfare) ? job.welfare : [],
+    jd: listSummary,
+    company_industry: normalizeInline(job.industry),
+    company_scale: normalizeInline(job.scale),
+    company_stage: normalizeInline(job.stage),
+    company_intro: "",
+    boss_name: normalizeInline(job.boss),
+    boss_title: normalizeInline(job.bossTitle),
+    job_url: normalizeInline(job.url),
+    security_id: normalizeInline(job.securityId),
+    crawl_status: "pending",
   };
 }
 
@@ -353,7 +377,9 @@ async function main() {
   emitEvent(options.stream, "start", {
     mode: "bb-site",
     keyword: options.keyword,
+    searchKeyword: options.keyword,
     cityCode: options.cityCode,
+    pageStart: options.pageStart,
     pages: options.pages,
     maxJobs: options.maxJobs,
     fetchDetails: options.fetchDetails,
@@ -361,42 +387,36 @@ async function main() {
 
   await ensureBossSessionReady(options.stream);
 
-  const searchPlans = buildSearchPlans(options.keyword);
   const seen = new Set();
   const candidates = [];
-  let chosenQuery = searchPlans[0]?.query || options.keyword;
+  let pagesRead = 0;
 
-  for (const plan of searchPlans) {
-    let beforePlanCount = candidates.length;
-    for (let page = 1; page <= options.pages; page += 1) {
-      emitEvent(options.stream, "progress", {
-        phase: "list",
-        page,
-        pages: options.pages,
-        total: candidates.length,
-        query: plan.query,
-      });
-      const data = await runBbBrowserWithRetry(
-        ["site", "boss/search", plan.query, options.cityCode, String(page)],
-        2,
-        800,
-      );
-      const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
-      for (const job of jobs) {
-        const key = uniqueJobKey(job);
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        candidates.push(job);
-        if (candidates.length >= options.maxJobs) break;
-      }
+  for (let page = options.pageStart; page < options.pageStart + options.pages; page += 1) {
+    emitEvent(options.stream, "progress", {
+      phase: "list",
+      page,
+      pages: options.pageStart + options.pages - 1,
+      total: candidates.length,
+      query: options.keyword,
+    });
+    const data = await runBbBrowserWithRetry(
+      ["site", "boss/search", options.keyword, options.cityCode, String(page)],
+      2,
+      800,
+    );
+    pagesRead = page;
+    const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
+    let pageAdded = 0;
+    for (const job of jobs) {
+      const key = uniqueJobKey(job);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      candidates.push(job);
+      pageAdded += 1;
       if (candidates.length >= options.maxJobs) break;
     }
-    if (candidates.length > beforePlanCount) {
-      chosenQuery = plan.query;
-    }
-    if (candidates.length >= Math.min(options.maxJobs, 3)) {
-      break;
-    }
+    if (candidates.length >= options.maxJobs) break;
+    if (jobs.length === 0 || pageAdded === 0) break;
   }
 
   if (!candidates.length) {
@@ -408,13 +428,22 @@ async function main() {
 
   const rows = [];
   let persistedCount = 0;
+  let detailedCount = 0;
 
-  for (let index = 0; index < candidates.length && rows.length < options.maxJobs; index += 1) {
+  const listRows = candidates.slice(0, options.maxJobs).map((job, index) => {
+    const row = buildRowFromListJob(job, options.keyword, index);
+    rows.push(row);
+    emitEvent(options.stream, "job", mapDisplayJob(row));
+    return row;
+  });
+
+  for (let index = 0; index < listRows.length; index += 1) {
+    const seedRow = listRows[index];
     const job = candidates[index];
     emitEvent(options.stream, "progress", {
       phase: "detail",
       index: index + 1,
-      total: Math.min(candidates.length, options.maxJobs),
+      total: listRows.length,
     });
 
     let detail = null;
@@ -445,7 +474,8 @@ async function main() {
     const listSummary = buildListSummary(job);
 
     const row = {
-      search_keyword: chosenQuery,
+      order_index: seedRow.order_index,
+      search_keyword: options.keyword,
       city: normalizeInline(detailJob.location || job.city),
       job_name: normalizeInline(detailJob.name || job.name),
       company_name: normalizeInline(detailCompany.name || job.company),
@@ -476,8 +506,11 @@ async function main() {
       crawl_status: status,
     };
 
-    rows.push(row);
     emitEvent(options.stream, "job", mapDisplayJob(row));
+    rows[index] = row;
+    if (status === "detail_ok" || status === "page_fallback") {
+      detailedCount += 1;
+    }
 
     if (options.importBase) {
       const persisted = await persistJob(options.importBase, row);
@@ -495,10 +528,17 @@ async function main() {
 
   const summary = {
     ok: true,
-    searchKeyword: chosenQuery,
+    searchKeyword: options.keyword,
+    pageStart: options.pageStart,
+    actualPagesRead: pagesRead,
+    lastPageRead: pagesRead,
     totalSearchResults: candidates.length,
+    returnedJobs: rows.length,
     writtenRows: rows.length,
     persistedRows: persistedCount,
+    detailedJobs: detailedCount,
+    incompleteDetails: rows.length - detailedCount,
+    jobs: rows.map(mapDisplayJob),
   };
 
   if (!options.stream) {
