@@ -8,6 +8,7 @@ import { AiConfigDialog } from "@/components/ai-config-dialog";
 import { BrandMark } from "@/components/brand-mark";
 import { cn } from "@/lib/utils";
 import { SITE_NAV_ITEMS, isNavActive } from "@/lib/site-nav";
+import { isDemoModeClient } from "@/lib/demo/mode";
 
 type Props = {
   children: ReactNode;
@@ -25,9 +26,15 @@ export function AppShell({
   className,
 }: Props) {
   const pathname = usePathname() ?? "/";
+  const isDemo = isDemoModeClient();
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,#dbeafe,rgba(255,255,255,0.96)_46%)]">
+      {isDemo ? (
+        <div className="border-b border-amber-200 bg-amber-50/95 px-5 py-2 text-center text-xs text-amber-950 sm:text-sm">
+          在线演示版 · 岗位只读 · 数据仅存本机浏览器 · 请自备 API Key
+        </div>
+      ) : null}
       <header className="sticky top-0 z-40 border-b border-sky-100/80 bg-white/82 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-5 py-4 sm:px-8">
           <Link href="/" className="flex items-center gap-3">
@@ -44,7 +51,8 @@ export function AppShell({
                   href={item.href}
                   className={cn(
                     "inline-flex items-center gap-1.5 transition-colors hover:text-sky-700",
-                    isNavActive(pathname, item.href) && "font-medium text-sky-700",
+                    isNavActive(pathname, item.href) &&
+                      "font-medium text-sky-700",
                   )}
                 >
                   <span className="text-[13px] leading-none">{item.emoji}</span>
@@ -66,7 +74,12 @@ export function AppShell({
         </div>
       </header>
 
-      <main className={cn("mx-auto flex w-full max-w-7xl flex-col gap-10 px-5 py-8 sm:px-8", className)}>
+      <main
+        className={cn(
+          "mx-auto flex w-full max-w-7xl flex-col gap-10 px-5 py-8 sm:px-8",
+          className,
+        )}
+      >
         {(title || description || hero) && (
           <section className="space-y-4 pt-4">
             {hero}

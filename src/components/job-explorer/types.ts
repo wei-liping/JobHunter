@@ -15,4 +15,8 @@ export type ExplorerJob = {
   url?: string | null;
   detailStatus?: string;
   order?: number;
+  /** 演示快照：BOSS 城市 code，用于筛选 */
+  snapshotCityCode?: string;
+  /** 演示快照：抓取时使用的关键词 */
+  searchKeyword?: string;
 };

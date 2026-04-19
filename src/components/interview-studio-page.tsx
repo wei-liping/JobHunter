@@ -6,6 +6,12 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchWithAiHeaders } from "@/lib/client/fetch-with-ai";
+import { isDemoModeClient } from "@/lib/demo/mode";
+import {
+  listDemoResumes,
+  listDemoInterviews,
+  upsertDemoInterview,
+} from "@/lib/client/demo-local-store";
 
 type JobRow = {
   id: string;
@@ -28,7 +34,11 @@ type InterviewSession = {
   id: string;
   title?: string | null;
   summary?: string | null;
-  transcript: Array<{ role: "user" | "assistant"; content: string; createdAt?: string }>;
+  transcript: Array<{
+    role: "user" | "assistant";
+    content: string;
+    createdAt?: string;
+  }>;
   job: { id: string; title: string; company: string; jdText: string };
   resume: { id: string; title: string; rawMarkdown: string };
   updatedAt: string;
@@ -36,6 +46,7 @@ type InterviewSession = {
 
 export function InterviewStudioPage() {
   const searchParams = useSearchParams();
+  const isDemo = isDemoModeClient();
   const [savedJobs, setSavedJobs] = useState<JobRow[]>([]);
   const [resumes, setResumes] = useState<ResumeRow[]>([]);
   const [sessions, setSessions] = useState<InterviewSession[]>([]);
@@ -60,18 +71,33 @@ export function InterviewStudioPage() {
   );
 
   async function refresh() {
-    const [jobsRes, resumesRes, sessionsRes] = await Promise.all([
-      fetchWithAiHeaders("/api/saved-jobs"),
+    const jobsRes = await fetchWithAiHeaders("/api/saved-jobs");
+    if (jobsRes.ok) setSavedJobs((await jobsRes.json()) as JobRow[]);
+    if (isDemo) {
+      setResumes(
+        listDemoResumes().map((r) => ({
+          id: r.id,
+          title: r.title,
+          rawMarkdown: r.rawMarkdown,
+          sourceLabel: r.sourceLabel,
+        })),
+      );
+      setSessions(listDemoInterviews() as InterviewSession[]);
+      return;
+    }
+    const [resumesRes, sessionsRes] = await Promise.all([
       fetchWithAiHeaders("/api/resumes"),
       fetchWithAiHeaders("/api/interviews"),
     ]);
-    if (jobsRes.ok) setSavedJobs((await jobsRes.json()) as JobRow[]);
     if (resumesRes.ok) setResumes((await resumesRes.json()) as ResumeRow[]);
-    if (sessionsRes.ok) setSessions((await sessionsRes.json()) as InterviewSession[]);
+    if (sessionsRes.ok) {
+      setSessions((await sessionsRes.json()) as InterviewSession[]);
+    }
   }
 
   useEffect(() => {
     void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 首次加载即可
   }, []);
 
   useEffect(() => {
@@ -88,9 +114,46 @@ export function InterviewStudioPage() {
       setNotice("开始前需要先选一个岗位和一份简历。");
       return;
     }
+    if (!selectedJob?.jdText?.trim() || !selectedResume?.rawMarkdown.trim()) {
+      setNotice("请确认岗位 JD 与简历内容都已加载。");
+      return;
+    }
     setBusy(true);
     setNotice(null);
     try {
+      if (isDemo) {
+        const createRes = await fetchWithAiHeaders(
+          "/api/interviews/ephemeral",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phase: "start",
+              jobId: selectedJobId,
+              resumeId: selectedResumeId,
+              jobTitle: selectedJob.title,
+              company: selectedJob.company,
+              jdText: selectedJob.jdText,
+              resumeMarkdown: selectedResume.rawMarkdown,
+              resumeTitle: selectedResume.title,
+              title: `${selectedJob.title} 模拟面试`,
+            }),
+          },
+        );
+        const replyBody = (await createRes.json()) as {
+          error?: string;
+          session?: InterviewSession;
+        };
+        if (!createRes.ok || !replyBody.session) {
+          throw new Error(replyBody.error ?? "无法开始模拟面试");
+        }
+        upsertDemoInterview(replyBody.session);
+        await refresh();
+        setSessionId(replyBody.session.id);
+        setNotice("模拟面试已经开始（记录保存在本浏览器）。");
+        return;
+      }
+
       const createRes = await fetchWithAiHeaders("/api/interviews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -103,14 +166,20 @@ export function InterviewStudioPage() {
       const created = (await createRes.json()) as InterviewSession;
       if (!createRes.ok) throw new Error("无法创建模拟面试");
 
-      const replyRes = await fetchWithAiHeaders(`/api/interviews/${created.id}/reply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: "请根据当前岗位和简历，开始第一轮模拟面试。",
-        }),
-      });
-      const replyBody = (await replyRes.json()) as { error?: string; session?: InterviewSession };
+      const replyRes = await fetchWithAiHeaders(
+        `/api/interviews/${created.id}/reply`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: "请根据当前岗位和简历，开始第一轮模拟面试。",
+          }),
+        },
+      );
+      const replyBody = (await replyRes.json()) as {
+        error?: string;
+        session?: InterviewSession;
+      };
       if (!replyRes.ok || !replyBody.session) {
         throw new Error(replyBody.error ?? "无法开始模拟面试");
       }
@@ -132,12 +201,54 @@ export function InterviewStudioPage() {
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetchWithAiHeaders(`/api/interviews/${sessionId}/reply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: draft.trim() }),
-      });
-      const body = (await res.json()) as { error?: string; session?: InterviewSession };
+      if (isDemo) {
+        const sess = sessions.find((s) => s.id === sessionId) ?? currentSession;
+        if (!sess) {
+          throw new Error("会话已失效，请重新开始。");
+        }
+        const res = await fetchWithAiHeaders("/api/interviews/ephemeral", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phase: "reply",
+            sessionId,
+            jobId: sess.job.id,
+            resumeId: sess.resume.id,
+            jobTitle: sess.job.title,
+            company: sess.job.company,
+            jdText: sess.job.jdText,
+            resumeMarkdown: sess.resume.rawMarkdown,
+            resumeTitle: sess.resume.title,
+            transcript: sess.transcript,
+            message: draft.trim(),
+          }),
+        });
+        const body = (await res.json()) as {
+          error?: string;
+          session?: InterviewSession;
+        };
+        if (!res.ok || !body.session) {
+          throw new Error(body.error ?? "发送失败");
+        }
+        upsertDemoInterview(body.session);
+        setDraft("");
+        await refresh();
+        setSessionId(body.session.id);
+        return;
+      }
+
+      const res = await fetchWithAiHeaders(
+        `/api/interviews/${sessionId}/reply`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: draft.trim() }),
+        },
+      );
+      const body = (await res.json()) as {
+        error?: string;
+        session?: InterviewSession;
+      };
       if (!res.ok || !body.session) {
         throw new Error(body.error ?? "发送失败");
       }
@@ -154,6 +265,11 @@ export function InterviewStudioPage() {
   return (
     <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
       <section className="space-y-4 rounded-[2rem] border border-sky-100 bg-white/92 p-5 shadow-[0_12px_40px_rgba(59,130,246,0.08)]">
+        {isDemo ? (
+          <p className="rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm text-amber-950">
+            演示版：对话仅保存在本浏览器；请先填好右上角 API Key。
+          </p>
+        ) : null}
         <div className="space-y-2">
           <h2 className="text-xl font-semibold tracking-[-0.03em]">面试配置</h2>
           <p className="text-sm text-muted-foreground">
@@ -204,7 +320,12 @@ export function InterviewStudioPage() {
 
         <div className="space-y-3 rounded-[1.5rem] bg-sky-50/80 p-4 text-sm text-muted-foreground">
           <h3 className="font-medium text-foreground">当前上下文</h3>
-          <p>岗位：{selectedJob ? `${selectedJob.title} · ${selectedJob.company}` : "未选择"}</p>
+          <p>
+            岗位：
+            {selectedJob
+              ? `${selectedJob.title} · ${selectedJob.company}`
+              : "未选择"}
+          </p>
           <p>简历：{selectedResume ? selectedResume.title : "未选择"}</p>
         </div>
 
@@ -234,7 +355,9 @@ export function InterviewStudioPage() {
                   <p className="font-medium text-foreground">
                     {session.title || `${session.job.title} 模拟面试`}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">{session.summary || "暂无总结"}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {session.summary || "暂无总结"}
+                  </p>
                 </button>
               ))
             )}
@@ -245,14 +368,20 @@ export function InterviewStudioPage() {
       <section className="space-y-4 rounded-[2rem] border border-sky-100 bg-white/92 p-5 shadow-[0_12px_40px_rgba(59,130,246,0.08)]">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold tracking-[-0.03em]">模拟对话</h2>
+            <h2 className="text-xl font-semibold tracking-[-0.03em]">
+              模拟对话
+            </h2>
             <p className="text-sm text-muted-foreground">
-              每次问一题，逐轮追问，记录会自动进入内容管理。
+              {isDemo
+                ? "每次问一题，逐轮追问；演示版记录保存在本浏览器。"
+                : "每次问一题，逐轮追问，记录会自动进入内容管理。"}
             </p>
           </div>
-          <Button asChild variant="outline" className="rounded-full">
-            <a href="/content?tab=interviews">去内容管理查看记录</a>
-          </Button>
+          {!isDemo ? (
+            <Button asChild variant="outline" className="rounded-full">
+              <a href="/content?tab=interviews">去内容管理查看记录</a>
+            </Button>
+          ) : null}
         </div>
 
         {notice ? (

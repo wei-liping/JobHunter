@@ -3,6 +3,9 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { JobPlatform } from "@/generated/prisma/enums";
 import { Prisma } from "@/generated/prisma/client";
+import { isDemoModeServer } from "@/lib/demo/mode";
+import { getDemoJobById } from "@/lib/demo/jobs-source";
+import { requireNotDemo } from "@/lib/demo/require-not-demo";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -23,9 +26,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  if (isDemoModeServer()) {
+    const job = await getDemoJobById(id);
+    if (!job) return NextResponse.json({ error: "not found" }, { status: 404 });
+    return NextResponse.json(job);
+  }
   const job = await prisma.job.findUnique({
     where: { id },
-    include: { applications: { include: { resume: true, scores: true } } },
   });
   if (!job) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json(job);
@@ -35,6 +42,8 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   const { id } = await params;
   const json = await req.json();
   const data = patchBody.parse(json);
@@ -67,6 +76,8 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   const { id } = await params;
   await prisma.job.delete({ where: { id } });
   return NextResponse.json({ ok: true });

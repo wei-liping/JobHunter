@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { requireNotDemo } from "@/lib/demo/require-not-demo";
 import { runInterviewReply, type InterviewTurn } from "@/lib/ai/interview";
 
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   try {
     const { id } = await params;
     const session = await prisma.interviewSession.findUnique({
@@ -23,7 +26,8 @@ export async function POST(
     const body = (await req.json().catch(() => ({}))) as {
       message?: string;
     };
-    const userMessage = typeof body.message === "string" ? body.message.trim() : "";
+    const userMessage =
+      typeof body.message === "string" ? body.message.trim() : "";
     if (!userMessage) {
       return NextResponse.json(
         { error: "missing_message", message: "请输入回答内容。" },

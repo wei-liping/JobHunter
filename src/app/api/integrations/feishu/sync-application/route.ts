@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { syncApplicationToFeishu } from "@/lib/feishu/sync";
 import { requireAdminToken } from "@/lib/security/request-guards";
+import { requireNotDemo } from "@/lib/demo/require-not-demo";
 
 const bodySchema = z.object({
   applicationId: z.string().min(1),
 });
 
 export async function POST(req: Request) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   try {
     requireAdminToken(req);
     const json = await req.json();

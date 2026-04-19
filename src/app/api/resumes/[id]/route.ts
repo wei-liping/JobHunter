@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ResumeSourceType } from "@/generated/prisma/enums";
+import { isDemoModeServer } from "@/lib/demo/mode";
+import { requireNotDemo } from "@/lib/demo/require-not-demo";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -19,6 +21,9 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (isDemoModeServer()) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const { id } = await params;
   const resume = await prisma.resume.findUnique({
     where: { id },
@@ -47,6 +52,8 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   const { id } = await params;
   const json = await req.json();
   const data = patchBody.parse(json);
@@ -72,6 +79,8 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   const { id } = await params;
   await prisma.resume.delete({ where: { id } });
   return NextResponse.json({ ok: true });

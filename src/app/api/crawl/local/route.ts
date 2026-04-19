@@ -9,7 +9,12 @@ import {
   resolveBbBrowserCommand,
   resolveLocalNodeExecutable,
 } from "@/lib/crawl/localBoss";
-import { DEFAULT_CRAWL_PAGES, DEFAULT_MAX_JOBS, MAX_JOBS_PER_RUN } from "@/lib/crawl/crawlTiming";
+import { isDemoModeServer } from "@/lib/demo/mode";
+import {
+  DEFAULT_CRAWL_PAGES,
+  DEFAULT_MAX_JOBS,
+  MAX_JOBS_PER_RUN,
+} from "@/lib/crawl/crawlTiming";
 
 const execFileAsync = promisify(execFile);
 
@@ -49,6 +54,17 @@ function parseHostPort(hostHeader: string | null): {
 }
 
 export async function POST(req: Request) {
+  if (isDemoModeServer()) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "demo_forbidden",
+        message:
+          "在线演示版使用静态岗位快照，不支持本地抓取。请在本地完整版中搜索，或运行 npm run snapshot:ai-pm 更新快照。",
+      },
+      { status: 403 },
+    );
+  }
   if (!isLocalCrawlAllowed()) {
     return NextResponse.json(
       {

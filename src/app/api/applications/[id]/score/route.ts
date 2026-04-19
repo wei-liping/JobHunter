@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireNotDemo } from "@/lib/demo/require-not-demo";
 import { runJobScoring } from "@/lib/ai/scoring";
 import { getChatModel } from "@/lib/ai/openai";
 import { applicationStatusFromScore } from "@/lib/workflow";
@@ -12,6 +13,8 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   try {
     const { id } = await params;
     const application = await prisma.application.findUnique({

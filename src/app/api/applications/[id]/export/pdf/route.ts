@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireNotDemo } from "@/lib/demo/require-not-demo";
 import { buildResumePdfBuffer } from "@/lib/export/pdf";
 import { buildResumePdfWithTemplate } from "@/lib/export/latex";
 
@@ -7,6 +8,8 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   const exportId = Date.now();
   const { id } = await params;
   const application = await prisma.application.findUnique({

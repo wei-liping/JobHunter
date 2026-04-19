@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { crawlJobWithPlaywright } from "@/lib/crawler/playwright";
+import { requireNotDemo } from "@/lib/demo/require-not-demo";
 import { JobPlatform } from "@/generated/prisma/enums";
 
 const bodySchema = z.object({
@@ -12,6 +13,8 @@ const bodySchema = z.object({
  * 仅抓取公开页面；需本地已安装 Playwright 浏览器（npx playwright install chromium）。
  */
 export async function POST(req: Request) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   const json = await req.json();
   const { url, platform } = bodySchema.parse(json);
   try {
