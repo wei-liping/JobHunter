@@ -236,15 +236,24 @@ export function JobExplorerPage() {
     })();
   }, [isDemo]);
 
-  const loadJobDetail = useCallback(async (jobId: string) => {
-    const persistedId = persistedIdByStreamRef.current[jobId] ?? jobId;
-    const res = await fetchWithAiHeaders(`/api/jobs/${persistedId}`);
-    if (!res.ok) {
-      setSelectedJobDetail(null);
-      return;
-    }
-    setSelectedJobDetail((await res.json()) as JobDetail);
-  }, []);
+  const loadJobDetail = useCallback(
+    async (jobId: string) => {
+      const mappedId = persistedIdByStreamRef.current[jobId];
+      const persistedId = mappedId ?? jobId;
+      const looksLikeDbCuid = /^c[a-z0-9]{20,30}$/i.test(persistedId);
+      if (!isDemo && !mappedId && !looksLikeDbCuid) {
+        setSelectedJobDetail(null);
+        return;
+      }
+      const res = await fetchWithAiHeaders(`/api/jobs/${persistedId}`);
+      if (!res.ok) {
+        setSelectedJobDetail(null);
+        return;
+      }
+      setSelectedJobDetail((await res.json()) as JobDetail);
+    },
+    [isDemo],
+  );
 
   useEffect(() => {
     if (!selectedJobId) {
@@ -687,7 +696,7 @@ export function JobExplorerPage() {
         )}
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+      <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -753,7 +762,7 @@ export function JobExplorerPage() {
           />
         </div>
 
-        <aside className="lg:sticky lg:top-28 lg:self-start">
+        <aside className="xl:sticky xl:top-28 xl:self-start">
           <div className="rounded-[2rem] border border-sky-100 bg-white/92 p-6 shadow-[0_14px_40px_rgba(59,130,246,0.08)]">
             {selectedJob ? (
               <div className="space-y-6">
