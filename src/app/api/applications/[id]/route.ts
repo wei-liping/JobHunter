@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ApplicationStatus } from "@/generated/prisma/enums";
+import { isDemoModeServer } from "@/lib/demo/mode";
+import { requireNotDemo } from "@/lib/demo/require-not-demo";
 import {
   safeSyncApplication,
   sendWorkflowNotification,
@@ -24,6 +26,9 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (isDemoModeServer()) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   const { id } = await params;
   const application = await prisma.application.findUnique({
     where: { id },
@@ -43,6 +48,8 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   const { id } = await params;
   const json = await req.json();
   const data = patchBody.parse(json);
@@ -76,6 +83,8 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   const { id } = await params;
   await prisma.application.delete({ where: { id } });
   return NextResponse.json({ ok: true });

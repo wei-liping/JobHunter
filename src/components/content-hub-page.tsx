@@ -6,8 +6,22 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchWithAiHeaders } from "@/lib/client/fetch-with-ai";
+import { isDemoModeClient } from "@/lib/demo/mode";
+import {
+  createDemoResume,
+  listDemoResumes,
+  listDemoInterviews,
+  deleteDemoResume,
+  deleteDemoInterview,
+  patchDemoResume,
+} from "@/lib/client/demo-local-store";
 
-type ContentTab = "jobs" | "resumes" | "applications" | "interviews" | "reviews";
+type ContentTab =
+  | "jobs"
+  | "resumes"
+  | "applications"
+  | "interviews"
+  | "reviews";
 
 type SavedJobRow = {
   id: string;
@@ -61,7 +75,11 @@ type InterviewSession = {
   title?: string | null;
   summary?: string | null;
   updatedAt: string;
-  transcript: Array<{ role: "user" | "assistant"; content: string; createdAt?: string }>;
+  transcript: Array<{
+    role: "user" | "assistant";
+    content: string;
+    createdAt?: string;
+  }>;
   job: { id: string; title: string; company: string };
   resume: { id: string; title: string };
 };
@@ -92,6 +110,7 @@ function sourceLabel(resume: ResumeRow) {
 
 export function ContentHubPage() {
   const searchParams = useSearchParams();
+  const isDemo = isDemoModeClient();
   const [tab, setTab] = useState<ContentTab>("jobs");
   const [savedJobs, setSavedJobs] = useState<SavedJobRow[]>([]);
   const [resumes, setResumes] = useState<ResumeRow[]>([]);
@@ -118,20 +137,39 @@ export function ContentHubPage() {
   );
 
   async function refresh() {
-    const [savedRes, resumeRes, appRes, interviewRes] = await Promise.all([
-      fetchWithAiHeaders("/api/saved-jobs"),
+    const savedRes = await fetchWithAiHeaders("/api/saved-jobs");
+    if (savedRes.ok) setSavedJobs((await savedRes.json()) as SavedJobRow[]);
+    if (isDemo) {
+      setResumes(
+        listDemoResumes().map((r) => ({
+          id: r.id,
+          title: r.title,
+          rawMarkdown: r.rawMarkdown,
+          sourceType: r.sourceType,
+          sourceLabel: r.sourceLabel,
+          sourceJob: null,
+          parentResume: null,
+        })),
+      );
+      setApplications([]);
+      setInterviews(listDemoInterviews() as InterviewSession[]);
+      return;
+    }
+    const [resumeRes, appRes, interviewRes] = await Promise.all([
       fetchWithAiHeaders("/api/resumes"),
       fetchWithAiHeaders("/api/applications"),
       fetchWithAiHeaders("/api/interviews"),
     ]);
-    if (savedRes.ok) setSavedJobs((await savedRes.json()) as SavedJobRow[]);
     if (resumeRes.ok) setResumes((await resumeRes.json()) as ResumeRow[]);
     if (appRes.ok) setApplications((await appRes.json()) as ApplicationRow[]);
-    if (interviewRes.ok) setInterviews((await interviewRes.json()) as InterviewSession[]);
+    if (interviewRes.ok) {
+      setInterviews((await interviewRes.json()) as InterviewSession[]);
+    }
   }
 
   useEffect(() => {
     void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 首次加载即可
   }, []);
 
   useEffect(() => {
@@ -152,15 +190,21 @@ export function ContentHubPage() {
   }, [tab]);
 
   const selectedSavedJob =
-    tab === "jobs" ? savedJobs.find((item) => item.id === selectedId) ?? null : null;
+    tab === "jobs"
+      ? (savedJobs.find((item) => item.id === selectedId) ?? null)
+      : null;
   const selectedResume =
-    tab === "resumes" ? resumes.find((item) => item.id === selectedId) ?? null : null;
+    tab === "resumes"
+      ? (resumes.find((item) => item.id === selectedId) ?? null)
+      : null;
   const selectedApplication =
     tab === "applications" || tab === "reviews"
-      ? applications.find((item) => item.id === selectedId) ?? null
+      ? (applications.find((item) => item.id === selectedId) ?? null)
       : null;
   const selectedInterview =
-    tab === "interviews" ? interviews.find((item) => item.id === selectedId) ?? null : null;
+    tab === "interviews"
+      ? (interviews.find((item) => item.id === selectedId) ?? null)
+      : null;
 
   useEffect(() => {
     if (!selectedApplication) return;
@@ -178,6 +222,10 @@ export function ContentHubPage() {
   }, [selectedResume]);
 
   async function createApplication() {
+    if (isDemo) {
+      setNotice("演示版不记录投递进展，请使用本地完整版。");
+      return;
+    }
     if (!createJobId || !createResumeId) {
       setNotice("先选岗位和简历，再创建投递进展。");
       return;
@@ -203,6 +251,20 @@ export function ContentHubPage() {
       setNotice("先填写简历内容，再保存到简历库。");
       return;
     }
+    if (isDemo) {
+      const created = createDemoResume({
+        title,
+        rawMarkdown,
+        sourceType: "MANUAL",
+        sourceLabel: "内容管理手动新建",
+      });
+      await refresh();
+      setSelectedId(created.id);
+      setNewResumeTitle("新简历");
+      setNewResumeMarkdown("");
+      setNotice("新简历已保存到本浏览器（演示版）。");
+      return;
+    }
     const res = await fetchWithAiHeaders("/api/resumes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -226,16 +288,23 @@ export function ContentHubPage() {
   }
 
   async function saveReview() {
+    if (isDemo) {
+      setNotice("演示版不保存投递与复盘，请使用本地完整版。");
+      return;
+    }
     if (!selectedApplication) return;
-    const res = await fetchWithAiHeaders(`/api/applications/${selectedApplication.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        status: statusDraft,
-        reviewSummary: reviewSummaryDraft,
-        reviewNotes: reviewNotesDraft,
-      }),
-    });
+    const res = await fetchWithAiHeaders(
+      `/api/applications/${selectedApplication.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: statusDraft,
+          reviewSummary: reviewSummaryDraft,
+          reviewNotes: reviewNotesDraft,
+        }),
+      },
+    );
     if (!res.ok) {
       setNotice("保存复盘失败。");
       return;
@@ -245,7 +314,13 @@ export function ContentHubPage() {
   }
 
   async function removeSavedJob(id: string) {
-    const res = await fetchWithAiHeaders(`/api/saved-jobs/${id}`, { method: "DELETE" });
+    if (isDemo) {
+      setNotice("演示版岗位来自只读快照，无法从看板移除。");
+      return;
+    }
+    const res = await fetchWithAiHeaders(`/api/saved-jobs/${id}`, {
+      method: "DELETE",
+    });
     if (!res.ok) {
       setNotice("移出岗位库失败。");
       return;
@@ -256,17 +331,24 @@ export function ContentHubPage() {
   }
 
   async function renameSavedJob() {
+    if (isDemo) {
+      setNotice("演示版不能修改快照岗位名称。");
+      return;
+    }
     if (!selectedSavedJob) return;
     const nextTitle = jobTitleDraft.trim();
     if (!nextTitle) {
       setNotice("岗位名称不能为空。");
       return;
     }
-    const res = await fetchWithAiHeaders(`/api/jobs/${selectedSavedJob.job.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: nextTitle }),
-    });
+    const res = await fetchWithAiHeaders(
+      `/api/jobs/${selectedSavedJob.job.id}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: nextTitle }),
+      },
+    );
     if (!res.ok) {
       setNotice("岗位重命名失败。");
       return;
@@ -276,10 +358,17 @@ export function ContentHubPage() {
   }
 
   async function deleteSavedJobCompletely() {
+    if (isDemo) {
+      setNotice("演示版不能删除快照中的岗位。");
+      return;
+    }
     if (!selectedSavedJob) return;
-    const res = await fetchWithAiHeaders(`/api/jobs/${selectedSavedJob.job.id}`, {
-      method: "DELETE",
-    });
+    const res = await fetchWithAiHeaders(
+      `/api/jobs/${selectedSavedJob.job.id}`,
+      {
+        method: "DELETE",
+      },
+    );
     if (!res.ok) {
       setNotice("删除岗位失败。");
       return;
@@ -296,6 +385,12 @@ export function ContentHubPage() {
       setNotice("简历名称不能为空。");
       return;
     }
+    if (isDemo) {
+      patchDemoResume(selectedResume.id, { title: nextTitle });
+      await refresh();
+      setNotice("简历名称已更新（本浏览器）。");
+      return;
+    }
     const res = await fetchWithAiHeaders(`/api/resumes/${selectedResume.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -310,7 +405,16 @@ export function ContentHubPage() {
   }
 
   async function deleteResume(id: string) {
-    const res = await fetchWithAiHeaders(`/api/resumes/${id}`, { method: "DELETE" });
+    if (isDemo) {
+      deleteDemoResume(id);
+      await refresh();
+      setSelectedId(null);
+      setNotice("简历已从本浏览器删除。");
+      return;
+    }
+    const res = await fetchWithAiHeaders(`/api/resumes/${id}`, {
+      method: "DELETE",
+    });
     if (!res.ok) {
       setNotice("删除简历失败。");
       return;
@@ -321,7 +425,16 @@ export function ContentHubPage() {
   }
 
   async function deleteInterview(id: string) {
-    const res = await fetchWithAiHeaders(`/api/interviews/${id}`, { method: "DELETE" });
+    if (isDemo) {
+      deleteDemoInterview(id);
+      await refresh();
+      setSelectedId(null);
+      setNotice("面试记录已从本浏览器删除。");
+      return;
+    }
+    const res = await fetchWithAiHeaders(`/api/interviews/${id}`, {
+      method: "DELETE",
+    });
     if (!res.ok) {
       setNotice("删除面试记录失败。");
       return;
@@ -364,6 +477,11 @@ export function ContentHubPage() {
 
   return (
     <div className="space-y-6">
+      {isDemo ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
+          演示版：岗位为只读快照；简历与面试记录仅保存在本浏览器。投递进展与复盘不可用。
+        </div>
+      ) : null}
       <section className="flex flex-wrap gap-2">
         {TABS.map((item) => (
           <button
@@ -418,6 +536,7 @@ export function ContentHubPage() {
               type="button"
               className="rounded-full bg-sky-600 text-white hover:bg-sky-700"
               onClick={() => void createApplication()}
+              disabled={isDemo}
             >
               新建投递记录
             </Button>
@@ -486,7 +605,9 @@ export function ContentHubPage() {
                 }`}
               >
                 <p className="font-medium text-foreground">{item.title}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{item.subtitle}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {item.subtitle}
+                </p>
               </button>
             ))
           )}
@@ -497,20 +618,28 @@ export function ContentHubPage() {
             <div className="space-y-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-2xl font-semibold tracking-[-0.03em]">{selectedSavedJob.job.title}</h2>
+                  <h2 className="text-2xl font-semibold tracking-[-0.03em]">
+                    {selectedSavedJob.job.title}
+                  </h2>
                   <p className="text-sm text-muted-foreground">
                     {selectedSavedJob.job.company}
-                    {selectedSavedJob.job.salary ? ` · ${selectedSavedJob.job.salary}` : ""}
+                    {selectedSavedJob.job.salary
+                      ? ` · ${selectedSavedJob.job.salary}`
+                      : ""}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button asChild variant="outline" className="rounded-full">
-                    <Link href={`/resume?jobId=${encodeURIComponent(selectedSavedJob.job.id)}`}>
+                    <Link
+                      href={`/resume?jobId=${encodeURIComponent(selectedSavedJob.job.id)}`}
+                    >
                       进入简历优化
                     </Link>
                   </Button>
                   <Button asChild variant="outline" className="rounded-full">
-                    <Link href={`/interview?jobId=${encodeURIComponent(selectedSavedJob.job.id)}`}>
+                    <Link
+                      href={`/interview?jobId=${encodeURIComponent(selectedSavedJob.job.id)}`}
+                    >
                       去模拟面试
                     </Link>
                   </Button>
@@ -552,7 +681,9 @@ export function ContentHubPage() {
                 </div>
               </div>
               <div className="rounded-[1.5rem] bg-sky-50/80 p-4 text-sm leading-7 text-foreground">
-                <p className="whitespace-pre-wrap">{selectedSavedJob.job.jdText}</p>
+                <p className="whitespace-pre-wrap">
+                  {selectedSavedJob.job.jdText}
+                </p>
               </div>
               {selectedSavedJob.job.url ? (
                 <a
@@ -571,12 +702,18 @@ export function ContentHubPage() {
             <div className="space-y-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-2xl font-semibold tracking-[-0.03em]">{selectedResume.title}</h2>
-                  <p className="text-sm text-muted-foreground">{sourceLabel(selectedResume)}</p>
+                  <h2 className="text-2xl font-semibold tracking-[-0.03em]">
+                    {selectedResume.title}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {sourceLabel(selectedResume)}
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button asChild variant="outline" className="rounded-full">
-                    <Link href={`/resume?resumeId=${encodeURIComponent(selectedResume.id)}`}>
+                    <Link
+                      href={`/resume?resumeId=${encodeURIComponent(selectedResume.id)}`}
+                    >
                       在简历优化中打开
                     </Link>
                   </Button>
@@ -595,7 +732,9 @@ export function ContentHubPage() {
                 <div className="flex flex-wrap gap-2">
                   <input
                     value={resumeTitleDraft}
-                    onChange={(event) => setResumeTitleDraft(event.target.value)}
+                    onChange={(event) =>
+                      setResumeTitleDraft(event.target.value)
+                    }
                     className="h-11 min-w-0 flex-1 rounded-2xl border border-sky-100 bg-white px-4 text-sm outline-none"
                     placeholder="修改简历名称"
                   />
@@ -610,7 +749,9 @@ export function ContentHubPage() {
                 </div>
               </div>
               <div className="rounded-[1.5rem] bg-sky-50/80 p-4 text-sm leading-7 text-foreground">
-                <p className="whitespace-pre-wrap">{selectedResume.rawMarkdown}</p>
+                <p className="whitespace-pre-wrap">
+                  {selectedResume.rawMarkdown}
+                </p>
               </div>
             </div>
           ) : null}
@@ -622,7 +763,8 @@ export function ContentHubPage() {
                   {selectedApplication.job.title}
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  {selectedApplication.job.company} · {selectedApplication.resume.title}
+                  {selectedApplication.job.company} ·{" "}
+                  {selectedApplication.resume.title}
                 </p>
               </div>
 
@@ -643,7 +785,8 @@ export function ContentHubPage() {
                     ))}
                   </select>
                   <p className="mt-4 text-sm text-muted-foreground">
-                    最新分数：{selectedApplication.scores[0]?.matchScore ?? "暂无"}
+                    最新分数：
+                    {selectedApplication.scores[0]?.matchScore ?? "暂无"}
                   </p>
                 </div>
                 <div className="rounded-[1.5rem] bg-sky-50/80 p-4">
@@ -652,12 +795,16 @@ export function ContentHubPage() {
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Button asChild variant="outline" className="rounded-full">
-                      <Link href={`/resume?jobId=${encodeURIComponent(selectedApplication.job.id)}&resumeId=${encodeURIComponent(selectedApplication.resume.id)}`}>
+                      <Link
+                        href={`/resume?jobId=${encodeURIComponent(selectedApplication.job.id)}&resumeId=${encodeURIComponent(selectedApplication.resume.id)}`}
+                      >
                         打开简历优化
                       </Link>
                     </Button>
                     <Button asChild variant="outline" className="rounded-full">
-                      <Link href={`/interview?jobId=${encodeURIComponent(selectedApplication.job.id)}&resumeId=${encodeURIComponent(selectedApplication.resume.id)}`}>
+                      <Link
+                        href={`/interview?jobId=${encodeURIComponent(selectedApplication.job.id)}&resumeId=${encodeURIComponent(selectedApplication.resume.id)}`}
+                      >
                         打开模拟面试
                       </Link>
                     </Button>
@@ -669,7 +816,9 @@ export function ContentHubPage() {
                 <label className="text-sm font-medium">复盘标题</label>
                 <Textarea
                   value={reviewSummaryDraft}
-                  onChange={(event) => setReviewSummaryDraft(event.target.value)}
+                  onChange={(event) =>
+                    setReviewSummaryDraft(event.target.value)
+                  }
                   className="min-h-[5rem] rounded-[1.5rem] border-sky-100 bg-sky-50/30 p-4 text-sm"
                 />
               </div>
@@ -699,7 +848,8 @@ export function ContentHubPage() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-2xl font-semibold tracking-[-0.03em]">
-                    {selectedInterview.title || `${selectedInterview.job.title} 模拟面试`}
+                    {selectedInterview.title ||
+                      `${selectedInterview.job.title} 模拟面试`}
                   </h2>
                   <p className="text-sm text-muted-foreground">
                     {selectedInterview.summary || "暂无总结"}
@@ -707,7 +857,9 @@ export function ContentHubPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button asChild variant="outline" className="rounded-full">
-                    <Link href={`/interview?sessionId=${encodeURIComponent(selectedInterview.id)}`}>
+                    <Link
+                      href={`/interview?sessionId=${encodeURIComponent(selectedInterview.id)}`}
+                    >
                       继续对话
                     </Link>
                   </Button>
@@ -738,7 +890,10 @@ export function ContentHubPage() {
             </div>
           ) : null}
 
-          {!selectedSavedJob && !selectedResume && !selectedApplication && !selectedInterview ? (
+          {!selectedSavedJob &&
+          !selectedResume &&
+          !selectedApplication &&
+          !selectedInterview ? (
             <div className="rounded-[1.5rem] bg-sky-50/80 px-4 py-8 text-sm text-muted-foreground">
               从左边选一条内容后，这里会显示详细信息。
             </div>

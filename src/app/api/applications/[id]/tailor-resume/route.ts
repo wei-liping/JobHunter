@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireNotDemo } from "@/lib/demo/require-not-demo";
 import { runResumeTailor } from "@/lib/ai/resumeGenerator";
 
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   try {
     const { id } = await params;
     const application = await prisma.application.findUnique({

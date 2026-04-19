@@ -12,6 +12,8 @@ import {
   DEFAULT_MAX_JOBS,
   MAX_JOBS_PER_RUN,
 } from "@/lib/crawl/crawlTiming";
+import { isDemoModeServer } from "@/lib/demo/mode";
+import { demoCrawlForbiddenSseLine } from "@/lib/demo/require-not-demo";
 
 export const runtime = "nodejs";
 
@@ -63,6 +65,16 @@ function toEvent(line: string): { event: string; data: unknown } {
 }
 
 export async function GET(req: Request) {
+  if (isDemoModeServer()) {
+    return new Response(demoCrawlForbiddenSseLine(), {
+      status: 403,
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    });
+  }
   if (!isLocalCrawlAllowed()) {
     return new Response(
       sseLine("error", {
@@ -109,7 +121,8 @@ export async function GET(req: Request) {
     );
   }
 
-  const { keyword, platform, cityCode, pageStart, pages, maxJobs } = parsed.data;
+  const { keyword, platform, cityCode, pageStart, pages, maxJobs } =
+    parsed.data;
   const fetchDetails = parsed.data.fetchDetails ?? true;
 
   if (platform === "other") {

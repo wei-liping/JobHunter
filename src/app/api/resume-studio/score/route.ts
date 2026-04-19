@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { runJobScoring } from "@/lib/ai/scoring";
+import { isDemoModeServer } from "@/lib/demo/mode";
+import { getDemoJobById } from "@/lib/demo/jobs-source";
 
 const bodySchema = z.object({
   jobId: z.string().optional(),
@@ -15,8 +17,13 @@ export async function POST(req: Request) {
     const data = bodySchema.parse(json);
     let jdText = data.jdText?.trim() ?? "";
     if (!jdText && data.jobId) {
-      const job = await prisma.job.findUnique({ where: { id: data.jobId } });
-      jdText = job?.jdText?.trim() ?? "";
+      if (isDemoModeServer()) {
+        const dj = await getDemoJobById(data.jobId);
+        jdText = dj?.jdText?.trim() ?? "";
+      } else {
+        const job = await prisma.job.findUnique({ where: { id: data.jobId } });
+        jdText = job?.jdText?.trim() ?? "";
+      }
     }
     if (!jdText) {
       return NextResponse.json(

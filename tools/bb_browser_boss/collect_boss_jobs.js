@@ -14,6 +14,7 @@ class AppError extends Error {
 }
 
 function parseArgs(argv) {
+  const pacing = loadPacingDefaults();
   const options = {
     keyword: "",
     cityCode: "101280600",
@@ -23,6 +24,10 @@ function parseArgs(argv) {
     importBase: "",
     stream: false,
     fetchDetails: true,
+    snapshotExport: false,
+    listSleepMs: pacing.listSleepMs,
+    detailSleepMs: pacing.detailSleepMs,
+    jitterRatio: pacing.jitterRatio,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -43,6 +48,24 @@ function parseArgs(argv) {
     } else if (arg === "--max-jobs" && next) {
       options.maxJobs = Math.max(1, Number(next) || 10);
       index += 1;
+    } else if (arg === "--list-sleep" && next) {
+      const sec = Number(next);
+      if (Number.isFinite(sec) && sec >= 0) {
+        options.listSleepMs = Math.round(sec * 1000);
+      }
+      index += 1;
+    } else if (arg === "--detail-sleep" && next) {
+      const sec = Number(next);
+      if (Number.isFinite(sec) && sec >= 0) {
+        options.detailSleepMs = Math.round(sec * 1000);
+      }
+      index += 1;
+    } else if (arg === "--jitter" && next) {
+      const r = Number(next);
+      if (Number.isFinite(r)) {
+        options.jitterRatio = Math.min(1, Math.max(0, r));
+      }
+      index += 1;
     } else if (arg === "--import-base" && next) {
       options.importBase = next;
       index += 1;
@@ -52,6 +75,8 @@ function parseArgs(argv) {
       options.fetchDetails = true;
     } else if (arg === "--no-fetch-details") {
       options.fetchDetails = false;
+    } else if (arg === "--snapshot-export") {
+      options.snapshotExport = true;
     }
   }
 
@@ -73,6 +98,67 @@ function writeJson(payload) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** @param {number} baseMs @param {number} jitterRatio 0–1, applied as ±ratio */
+function sleepWithJitter(baseMs, jitterRatio) {
+  const j = Math.min(1, Math.max(0, Number(jitterRatio) || 0));
+  const r = j * (Math.random() * 2 - 1);
+  const ms = Math.max(0, Math.round(baseMs * (1 + r)));
+  return sleep(ms);
+}
+
+function parseEnvSecondsToMs(envKey, defaultSeconds) {
+  const raw = process.env[envKey];
+  if (raw == null || !String(raw).trim()) {
+    return Math.round(Number(defaultSeconds) * 1000);
+  }
+  const n = Number(String(raw).trim());
+  if (!Number.isFinite(n) || n < 0) {
+    return Math.round(Number(defaultSeconds) * 1000);
+  }
+  return Math.round(n * 1000);
+}
+
+function parseEnvRatio(envKey, defaultRatio) {
+  const raw = process.env[envKey];
+  if (raw == null || !String(raw).trim()) return defaultRatio;
+  const n = Number(String(raw).trim());
+  if (!Number.isFinite(n)) return defaultRatio;
+  return Math.min(1, Math.max(0, n));
+}
+
+function loadPacingDefaults() {
+  return {
+    listSleepMs: parseEnvSecondsToMs("JOBHUNTER_SNAPSHOT_LIST_SLEEP", 6),
+    detailSleepMs: parseEnvSecondsToMs("JOBHUNTER_SNAPSHOT_DETAIL_SLEEP", 2),
+    jitterRatio: parseEnvRatio("JOBHUNTER_SNAPSHOT_JITTER_RATIO", 0.4),
+  };
+}
+
+const RISK_MESSAGE_DEFAULT = "BOSS 提示需要人工验证，抓取已停止。";
+
+/** BOSS 风控 / 验证页常见文案 */
+function looksLikeRiskPage(text) {
+  const t = normalizeInline(String(text || ""));
+  if (!t) return false;
+  return /(安全验证|请完成安全验证|人机验证|请输入验证码|访问过于频繁|访问存在异常|您的访问|请稍后再试|拖动滑块|行为验证)/.test(
+    t,
+  );
+}
+
+async function probeBossPageRisk() {
+  try {
+    const evalResult = await runBbBrowserWithRetry(
+      ["eval", "document.body.innerText.slice(0, 12000)"],
+      1,
+      500,
+    );
+    const rawText = String(evalResult?.result || "");
+    return looksLikeRiskPage(rawText);
+  } catch {
+    return false;
+  }
 }
 
 function normalizeInline(value) {
@@ -108,14 +194,21 @@ function runBbBrowser(args) {
     });
     const parsed = JSON.parse(stdout);
     if (!parsed.success) {
-      throw new AppError("bb_browser_failed", parsed.error || "bb-browser command failed");
+      throw new AppError(
+        "bb_browser_failed",
+        parsed.error || "bb-browser command failed",
+      );
     }
     return parsed.data;
   } catch (error) {
     const stderr = normalizeInline(error.stderr || "");
     const stdout = normalizeInline(error.stdout || "");
-    const rawMessage = stderr || stdout || error.message || "bb-browser command failed";
-    if (String(rawMessage).includes("not found") || String(error.code || "").includes("ENOENT")) {
+    const rawMessage =
+      stderr || stdout || error.message || "bb-browser command failed";
+    if (
+      String(rawMessage).includes("not found") ||
+      String(error.code || "").includes("ENOENT")
+    ) {
       throw new AppError(
         "bb_browser_missing",
         "未检测到 bb-browser。请先安装并确认命令可在终端里直接执行。",
@@ -172,8 +265,16 @@ function cleanFallbackJD(rawText) {
     const nextLine = lines[index + 1] || "";
     if (line === "职位描述") continue;
     if (/(刚刚活跃|今日活跃|\d+日内活跃)$/.test(line)) break;
-    if (/^(竞争力分析|查看完整个人竞争力|个人综合排名：|你在？位置|一般 良好 优秀 极好|BOSS 安全提示)$/.test(line)) break;
-    if (/^[\u4e00-\u9fa5]{1,4}(女士|先生|老师)$/.test(line) && /(刚刚活跃|今日活跃|\d+日内活跃)$/.test(nextLine)) {
+    if (
+      /^(竞争力分析|查看完整个人竞争力|个人综合排名：|你在？位置|一般 良好 优秀 极好|BOSS 安全提示)$/.test(
+        line,
+      )
+    )
+      break;
+    if (
+      /^[\u4e00-\u9fa5]{1,4}(女士|先生|老师)$/.test(line) &&
+      /(刚刚活跃|今日活跃|\d+日内活跃)$/.test(nextLine)
+    ) {
       break;
     }
 
@@ -195,7 +296,8 @@ function isWeakJD(text) {
   const normalized = normalizeInline(text);
   if (!normalized) return true;
   if (normalized.length < 20) return true;
-  if (!/[：:，。,；;、]/.test(normalized) && normalized.length < 40) return true;
+  if (!/[：:，。,；;、]/.test(normalized) && normalized.length < 40)
+    return true;
   return false;
 }
 
@@ -229,11 +331,17 @@ function mapDisplayJob(row) {
 async function fetchPageFallback(url) {
   runBbBrowser(["open", url]);
   await sleep(2200);
-  const evalResult = await runBbBrowserWithRetry(["eval", "document.body.innerText"], 2, 1000);
+  const evalResult = await runBbBrowserWithRetry(
+    ["eval", "document.body.innerText"],
+    2,
+    1000,
+  );
   const rawText = String(evalResult?.result || "");
   const text = normalizeInline(rawText);
   return {
-    jd: cleanFallbackJD(extractSectionRaw(rawText, "职位描述", "BOSS 安全提示")),
+    jd: cleanFallbackJD(
+      extractSectionRaw(rawText, "职位描述", "BOSS 安全提示"),
+    ),
     company_intro: extractSection(text, "公司介绍", "工商信息"),
     address: extractSection(text, "工作地址", "点击查看地图"),
   };
@@ -251,7 +359,11 @@ function buildListSummary(job) {
   return normalizeBlock(lines.join("\n"));
 }
 
-function mergeDetailAndFallback(detailDescription, pageFallbackJd, listSummary) {
+function mergeDetailAndFallback(
+  detailDescription,
+  pageFallbackJd,
+  listSummary,
+) {
   const detailText = normalizeBlock(detailDescription);
   const fallbackText = normalizeBlock(pageFallbackJd);
   if (!isWeakJD(detailText)) return detailText;
@@ -287,7 +399,8 @@ async function ensureBossSessionReady(stream) {
   if (looksLikeLoggedOut(homeState)) {
     emitEvent(stream, "error", {
       error: "boss_not_logged_in",
-      message: "未检测到可用的 BOSS 登录会话。请先在本机浏览器中登录 BOSS 后再搜索。",
+      message:
+        "未检测到可用的 BOSS 登录会话。请先在本机浏览器中登录 BOSS 后再搜索。",
     });
     throw new AppError(
       "boss_not_logged_in",
@@ -357,7 +470,8 @@ async function persistJob(importBase, row) {
     platform: "BOSS",
     companyInfo: toCompanyInfo(row),
   };
-  const response = await fetch(`${importBase.replace(/\/$/, "")}/api/jobs`, {
+  const target = `${importBase.replace(/\/$/, "")}/api/jobs`;
+  const response = await fetch(target, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -383,15 +497,27 @@ async function main() {
     pages: options.pages,
     maxJobs: options.maxJobs,
     fetchDetails: options.fetchDetails,
+    listSleepMs: options.listSleepMs,
+    detailSleepMs: options.detailSleepMs,
+    jitterRatio: options.jitterRatio,
   });
 
   await ensureBossSessionReady(options.stream);
 
   const seen = new Set();
   const candidates = [];
-  let pagesRead = 0;
+  let pagesRead = options.pageStart - 1;
+  let riskTriggered = false;
+  let riskMessage = "";
 
-  for (let page = options.pageStart; page < options.pageStart + options.pages; page += 1) {
+  for (
+    let page = options.pageStart;
+    page < options.pageStart + options.pages;
+    page += 1
+  ) {
+    if (page > options.pageStart) {
+      await sleepWithJitter(options.listSleepMs, options.jitterRatio);
+    }
     emitEvent(options.stream, "progress", {
       phase: "list",
       page,
@@ -416,10 +542,41 @@ async function main() {
       if (candidates.length >= options.maxJobs) break;
     }
     if (candidates.length >= options.maxJobs) break;
+
+    if (await probeBossPageRisk()) {
+      riskTriggered = true;
+      riskMessage = RISK_MESSAGE_DEFAULT;
+      break;
+    }
+
     if (jobs.length === 0 || pageAdded === 0) break;
   }
 
   if (!candidates.length) {
+    if (riskTriggered) {
+      const emptySummary = {
+        ok: false,
+        error: "boss_risk_triggered",
+        message: riskMessage || RISK_MESSAGE_DEFAULT,
+        searchKeyword: options.keyword,
+        pageStart: options.pageStart,
+        actualPagesRead: pagesRead,
+        lastPageRead: pagesRead,
+        totalSearchResults: 0,
+        returnedJobs: 0,
+        writtenRows: 0,
+        persistedRows: 0,
+        detailedJobs: 0,
+        incompleteDetails: 0,
+        jobs: [],
+        ...(options.snapshotExport ? { snapshotExport: [] } : {}),
+      };
+      if (!options.stream) {
+        writeJson(emptySummary);
+      }
+      emitEvent(options.stream, "done", emptySummary);
+      return;
+    }
     throw new AppError(
       "no_results",
       "没有拿到任何职位搜索结果。请确认 BOSS 已登录，或换一个更明确的关键词后重试。",
@@ -438,6 +595,9 @@ async function main() {
   });
 
   for (let index = 0; index < listRows.length; index += 1) {
+    if (index > 0) {
+      await sleepWithJitter(options.detailSleepMs, options.jitterRatio);
+    }
     const seedRow = listRows[index];
     const job = candidates[index];
     emitEvent(options.stream, "progress", {
@@ -452,7 +612,11 @@ async function main() {
 
     if (options.fetchDetails) {
       try {
-        detail = await runBbBrowserWithRetry(["site", "boss/detail", job.securityId], 2, 600);
+        detail = await runBbBrowserWithRetry(
+          ["site", "boss/detail", job.securityId],
+          2,
+          600,
+        );
       } catch (error) {
         status = `detail_failed: ${normalizeInline(error.message || String(error))}`;
         try {
@@ -498,7 +662,9 @@ async function main() {
       company_industry: normalizeInline(detailCompany.industry || job.industry),
       company_scale: normalizeInline(detailCompany.scale || job.scale),
       company_stage: normalizeInline(detailCompany.stage || job.stage),
-      company_intro: normalizeInline(detailCompany.intro || pageFallback?.company_intro),
+      company_intro: normalizeInline(
+        detailCompany.intro || pageFallback?.company_intro,
+      ),
       boss_name: normalizeInline(detailBoss.name || job.boss),
       boss_title: normalizeInline(detailBoss.title || job.bossTitle),
       job_url: normalizeInline(detailJob.url || job.url),
@@ -523,11 +689,22 @@ async function main() {
       }
     }
 
-    await sleep(150);
+    if (await probeBossPageRisk()) {
+      riskTriggered = true;
+      riskMessage = RISK_MESSAGE_DEFAULT;
+      rows.length = index + 1;
+      break;
+    }
   }
 
   const summary = {
-    ok: true,
+    ok: !riskTriggered,
+    ...(riskTriggered
+      ? {
+          error: "boss_risk_triggered",
+          message: riskMessage || RISK_MESSAGE_DEFAULT,
+        }
+      : {}),
     searchKeyword: options.keyword,
     pageStart: options.pageStart,
     actualPagesRead: pagesRead,
@@ -539,6 +716,24 @@ async function main() {
     detailedJobs: detailedCount,
     incompleteDetails: rows.length - detailedCount,
     jobs: rows.map(mapDisplayJob),
+    ...(options.snapshotExport
+      ? {
+          snapshotExport: rows.map((row) => ({
+            search_keyword: row.search_keyword,
+            city: row.city,
+            job_name: row.job_name,
+            company_name: row.company_name,
+            salary: row.salary,
+            experience: row.experience,
+            degree: row.degree,
+            company_scale: row.company_scale,
+            jd: row.jd,
+            job_url: row.job_url,
+            security_id: row.security_id,
+            skills: Array.isArray(row.skills) ? row.skills : [],
+          })),
+        }
+      : {}),
   };
 
   if (!options.stream) {

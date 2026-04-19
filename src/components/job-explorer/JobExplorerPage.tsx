@@ -14,6 +14,7 @@ import {
   DEFAULT_MAX_JOBS,
   MAX_JOBS_PER_RUN,
 } from "@/lib/crawl/crawlTiming";
+import { isDemoModeClient } from "@/lib/demo/mode";
 
 const defaultFilters: FilterState = {
   query: "",
@@ -23,6 +24,11 @@ const defaultFilters: FilterState = {
   education: "全部",
   experience: "全部",
   companySize: "全部",
+};
+
+const demoDefaultFilters: FilterState = {
+  ...defaultFilters,
+  cityCode: "",
 };
 
 type JobsApiItem = {
@@ -67,26 +73,79 @@ function matchesFilters(job: ExplorerJob, f: FilterState): boolean {
     const hay = `${job.title} ${job.company}`.toLowerCase();
     if (!hay.includes(q)) return false;
   }
+  if (
+    f.cityCode &&
+    job.snapshotCityCode &&
+    job.snapshotCityCode !== f.cityCode
+  ) {
+    return false;
+  }
   if (f.platform !== "全部" && job.platform !== f.platform) return false;
   if (f.education !== "全部" && job.education !== f.education) return false;
   if (f.experience !== "全部" && job.experience !== f.experience) return false;
-  if (f.companySize !== "全部" && job.companySize !== f.companySize) return false;
+  if (f.companySize !== "全部" && job.companySize !== f.companySize)
+    return false;
   return true;
+}
+
+type JobsApiRow = JobsApiItem & {
+  jdText?: string;
+  requirements?: string[] | null;
+  demoMeta?: {
+    city?: string;
+    experience?: string;
+    education?: string;
+    companySize?: string;
+    searchKeyword?: string;
+    cityCode?: string;
+  };
+};
+
+function apiRowToExplorerJob(row: JobsApiRow, order: number): ExplorerJob {
+  const m = row.demoMeta;
+  return {
+    id: row.id,
+    title: row.title,
+    company: row.company,
+    salary: row.salary ?? "薪资面议",
+    city: m?.city ?? "未知城市",
+    experience: m?.experience ?? "不限",
+    education: m?.education ?? "不限",
+    companySize: m?.companySize ?? "不限",
+    platform: "BOSS直聘",
+    score: 0,
+    url: row.url ?? null,
+    detailStatus: "",
+    order,
+    snapshotCityCode: m?.cityCode,
+    searchKeyword: m?.searchKeyword,
+  };
 }
 
 export function JobExplorerPage() {
   const router = useRouter();
-  const [filters, setFilters] = useState<FilterState>(defaultFilters);
+  const isDemo = isDemoModeClient();
+  const [filters, setFilters] = useState<FilterState>(() =>
+    isDemo ? demoDefaultFilters : defaultFilters,
+  );
   const [jobs, setJobs] = useState<ExplorerJob[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  const [selectedJobDetail, setSelectedJobDetail] = useState<JobDetail | null>(null);
+  const [selectedJobDetail, setSelectedJobDetail] = useState<JobDetail | null>(
+    null,
+  );
   const [savedJobs, setSavedJobs] = useState<SavedJobItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
-  const [setupHelp, setSetupHelp] = useState<{ title: string; message: string } | null>(null);
+  const [setupHelp, setSetupHelp] = useState<{
+    title: string;
+    message: string;
+  } | null>(null);
+  const [snapshotHint, setSnapshotHint] = useState<string | null>(null);
   const sseRef = useRef<EventSource | null>(null);
-  const sseFirstEventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sseFirstEventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const persistedIdByStreamRef = useRef<Record<string, string>>({});
   const selectedJobIdRef = useRef<string | null>(null);
   const lastPageReadRef = useRef<number>(0);
@@ -96,7 +155,10 @@ export function JobExplorerPage() {
     [jobs, filters],
   );
 
-  const savedJobIds = useMemo(() => new Set(savedJobs.map((item) => item.jobId)), [savedJobs]);
+  const savedJobIds = useMemo(
+    () => new Set(savedJobs.map((item) => item.jobId)),
+    [savedJobs],
+  );
 
   const selectedJob =
     filtered.find((job) => job.id === selectedJobId) ??
@@ -126,7 +188,11 @@ export function JobExplorerPage() {
   const loadSavedJobs = useCallback(async () => {
     const res = await fetchWithAiHeaders("/api/saved-jobs");
     if (!res.ok) return;
-    const rows = (await res.json()) as Array<{ id: string; note?: string | null; job: { id: string } }>;
+    const rows = (await res.json()) as Array<{
+      id: string;
+      note?: string | null;
+      job: { id: string };
+    }>;
     setSavedJobs(
       rows.map((row) => ({
         id: row.id,
@@ -140,15 +206,54 @@ export function JobExplorerPage() {
     void loadSavedJobs();
   }, [loadSavedJobs]);
 
-  const loadJobDetail = useCallback(async (jobId: string) => {
-    const persistedId = persistedIdByStreamRef.current[jobId] ?? jobId;
-    const res = await fetchWithAiHeaders(`/api/jobs/${persistedId}`);
-    if (!res.ok) {
-      setSelectedJobDetail(null);
-      return;
-    }
-    setSelectedJobDetail((await res.json()) as JobDetail);
-  }, []);
+  useEffect(() => {
+    if (!isDemo) return;
+    void (async () => {
+      let snapAt = "";
+      try {
+        const sr = await fetch("/data/jobs-ai-pm.json", { cache: "no-store" });
+        if (sr.ok) {
+          const s = (await sr.json()) as { snapshotAt?: string };
+          if (typeof s.snapshotAt === "string" && s.snapshotAt.trim()) {
+            snapAt = s.snapshotAt.trim();
+          }
+        }
+      } catch {
+        // ignore
+      }
+      setSnapshotHint(
+        snapAt
+          ? `快照日期 ${snapAt.slice(0, 10)} · 请在右上角填写自己的 API Key 后再使用简历优化与模拟面试`
+          : "当前岗位快照为空。请在本地运行 npm run snapshot:ai-pm 生成数据后提交到仓库 · 请在右上角填写自己的 API Key",
+      );
+      const res = await fetchWithAiHeaders("/api/jobs");
+      if (!res.ok) return;
+      const rows = (await res.json()) as JobsApiRow[];
+      const mapped = rows.map((r, i) => apiRowToExplorerJob(r, i));
+      setJobs(mapped);
+      setSearched(true);
+      setSelectedJobId((curr) => curr ?? mapped[0]?.id ?? null);
+    })();
+  }, [isDemo]);
+
+  const loadJobDetail = useCallback(
+    async (jobId: string) => {
+      const mappedId = persistedIdByStreamRef.current[jobId];
+      const persistedId = mappedId ?? jobId;
+      const looksLikeDbCuid = /^c[a-z0-9]{20,30}$/i.test(persistedId);
+      if (!isDemo && !mappedId && !looksLikeDbCuid) {
+        setSelectedJobDetail(null);
+        return;
+      }
+      const res = await fetchWithAiHeaders(`/api/jobs/${persistedId}`);
+      if (!res.ok) {
+        setSelectedJobDetail(null);
+        return;
+      }
+      setSelectedJobDetail((await res.json()) as JobDetail);
+    },
+    [isDemo],
+  );
 
   useEffect(() => {
     if (!selectedJobId) {
@@ -198,13 +303,12 @@ export function JobExplorerPage() {
     setJobs((prev) => {
       const next = [...prev];
       const indexById = new Map(next.map((job, index) => [job.id, index]));
-      let nextOrder = next.reduce(
-        (max, job) => Math.max(max, job.order ?? -1),
-        -1,
-      ) + 1;
+      let nextOrder =
+        next.reduce((max, job) => Math.max(max, job.order ?? -1), -1) + 1;
       for (const job of incoming) {
         const normalizedId = persistedIdByStreamRef.current[job.id] ?? job.id;
-        const normalizedJob = normalizedId === job.id ? job : { ...job, id: normalizedId };
+        const normalizedJob =
+          normalizedId === job.id ? job : { ...job, id: normalizedId };
         const existingIndex = indexById.get(normalizedJob.id);
         if (existingIndex === undefined) {
           next.push(
@@ -246,19 +350,34 @@ export function JobExplorerPage() {
       id,
       title,
       company,
-      salary: typeof data.salary === "string" && data.salary ? data.salary : "薪资面议",
+      salary:
+        typeof data.salary === "string" && data.salary
+          ? data.salary
+          : "薪资面议",
       city: typeof data.city === "string" && data.city ? data.city : "未知城市",
-      experience: typeof data.experience === "string" && data.experience ? data.experience : "不限",
-      education: typeof data.education === "string" && data.education ? data.education : "不限",
+      experience:
+        typeof data.experience === "string" && data.experience
+          ? data.experience
+          : "不限",
+      education:
+        typeof data.education === "string" && data.education
+          ? data.education
+          : "不限",
       companySize:
-        typeof data.companySize === "string" && data.companySize ? data.companySize : "不限",
+        typeof data.companySize === "string" && data.companySize
+          ? data.companySize
+          : "不限",
       platform:
         data.platform === "51job" || data.platform === "猎聘"
           ? (data.platform as JobPlatform)
           : "BOSS直聘",
       score: typeof data.score === "number" ? data.score : 0,
-      url: typeof data.url === "string" && data.url.trim() ? data.url.trim() : null,
-      detailStatus: typeof data.detailStatus === "string" ? data.detailStatus : "",
+      url:
+        typeof data.url === "string" && data.url.trim()
+          ? data.url.trim()
+          : null,
+      detailStatus:
+        typeof data.detailStatus === "string" ? data.detailStatus : "",
       order: typeof data.order === "number" ? data.order : undefined,
     };
   }
@@ -267,12 +386,18 @@ export function JobExplorerPage() {
     if (!streamId || !persistedId) return;
     persistedIdByStreamRef.current[streamId] = persistedId;
     setJobs((prev) =>
-      prev.map((job) => (job.id === streamId ? { ...job, id: persistedId } : job)),
+      prev.map((job) =>
+        job.id === streamId ? { ...job, id: persistedId } : job,
+      ),
     );
-    setSelectedJobId((current) => (current === streamId ? persistedId : current));
+    setSelectedJobId((current) =>
+      current === streamId ? persistedId : current,
+    );
   }
 
-  async function resolvePersistedJobId(job: ExplorerJob): Promise<string | null> {
+  async function resolvePersistedJobId(
+    job: ExplorerJob,
+  ): Promise<string | null> {
     const known = persistedIdByStreamRef.current[job.id];
     if (known) return known;
     if (/^c[a-z0-9]{20,30}$/i.test(job.id)) return job.id;
@@ -319,6 +444,10 @@ export function JobExplorerPage() {
     replaceNotice?: string;
     append?: boolean;
   }) {
+    if (isDemo) {
+      setNotice("演示版使用静态快照，请用上方关键词与城市筛选。");
+      return;
+    }
     if (!filters.query.trim()) {
       setNotice("请输入关键词后再搜索。");
       return;
@@ -398,7 +527,7 @@ export function JobExplorerPage() {
         }
         setNotice(
           body.ok === false
-            ? body.message ?? "搜索结束，但没有成功返回结果。"
+            ? (body.message ?? "搜索结束，但没有成功返回结果。")
             : `搜索完成，已显示 ${mapped.length} 条结果。`,
         );
       } finally {
@@ -429,7 +558,11 @@ export function JobExplorerPage() {
 
     es.addEventListener("start", () => {
       receivedFirstEvent = true;
-      setNotice(append ? "已连接本机 BOSS，正在追加更多结果。" : "已连接本机 BOSS，会继续补全职位详情。");
+      setNotice(
+        append
+          ? "已连接本机 BOSS，正在追加更多结果。"
+          : "已连接本机 BOSS，会继续补全职位详情。",
+      );
     });
 
     es.addEventListener("progress", (event) => {
@@ -443,9 +576,13 @@ export function JobExplorerPage() {
           index?: number;
         };
         if (payload.phase === "list") {
-          setNotice(`正在读取第 ${payload.page ?? "-"} 页，已拿到 ${payload.total ?? 0} 条结果。`);
+          setNotice(
+            `正在读取第 ${payload.page ?? "-"} 页，已拿到 ${payload.total ?? 0} 条结果。`,
+          );
         } else if (payload.phase === "detail") {
-          setNotice(`列表已到位，正在补充职位详情：${payload.index ?? 0} / ${payload.total ?? 0}`);
+          setNotice(
+            `列表已到位，正在补充职位详情：${payload.index ?? 0} / ${payload.total ?? 0}`,
+          );
         }
       } catch {
         // ignore
@@ -454,12 +591,15 @@ export function JobExplorerPage() {
 
     es.addEventListener("job", (event) => {
       receivedFirstEvent = true;
-        const job = parseSseJob(JSON.parse((event as MessageEvent).data));
+      const job = parseSseJob(JSON.parse((event as MessageEvent).data));
       if (job) {
         mergeIncomingJobs([job], { append });
         setSelectedJobId((current) => current ?? job.id);
         const selectedId = persistedIdByStreamRef.current[job.id] ?? job.id;
-        if (selectedJobIdRef.current && selectedId === selectedJobIdRef.current) {
+        if (
+          selectedJobIdRef.current &&
+          selectedId === selectedJobIdRef.current
+        ) {
           void loadJobDetail(selectedId);
         }
       }
@@ -477,7 +617,8 @@ export function JobExplorerPage() {
     });
 
     es.addEventListener("error", (event) => {
-      const payloadText = event instanceof MessageEvent ? String(event.data ?? "") : "";
+      const payloadText =
+        event instanceof MessageEvent ? String(event.data ?? "") : "";
       const payload = parseErrorPayload(payloadText);
       if (!receivedFirstEvent) {
         es.close();
@@ -499,7 +640,9 @@ export function JobExplorerPage() {
       sseRef.current = null;
       setLoading(false);
       try {
-        const payload = JSON.parse((event as MessageEvent).data) as SearchErrorPayload;
+        const payload = JSON.parse(
+          (event as MessageEvent).data,
+        ) as SearchErrorPayload;
         if (payload.ok === false) {
           if (showSetupHelp(payload.error, payload.message)) {
             setNotice(payload.message ?? "搜索前需要先完成本机环境准备。");
@@ -513,10 +656,13 @@ export function JobExplorerPage() {
         }
         if (typeof payload.returnedJobs === "number") {
           const detailText =
-            typeof payload.detailedJobs === "number" && typeof payload.incompleteDetails === "number"
+            typeof payload.detailedJobs === "number" &&
+            typeof payload.incompleteDetails === "number"
               ? ` 已补全 ${payload.detailedJobs} 条详情，未补全 ${payload.incompleteDetails} 条。`
               : "";
-          setNotice(`搜索完成，已显示 ${payload.returnedJobs} 条结果。${detailText}`.trim());
+          setNotice(
+            `搜索完成，已显示 ${payload.returnedJobs} 条结果。${detailText}`.trim(),
+          );
           return;
         }
       } catch {
@@ -528,6 +674,13 @@ export function JobExplorerPage() {
 
   return (
     <div className="space-y-6">
+      {isDemo ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 shadow-sm">
+          <strong className="font-semibold">在线演示版</strong>
+          ：岗位为只读快照（AI 产品经理 ·
+          一线及新一线城市）。简历与面试数据仅保存在本浏览器，不会写入服务器。
+        </div>
+      ) : null}
       <section className="rounded-[2rem] border border-sky-100 bg-white/82 p-4 shadow-[0_12px_40px_rgba(59,130,246,0.08)] sm:p-6">
         <FilterBar
           value={filters}
@@ -535,27 +688,41 @@ export function JobExplorerPage() {
           resultCount={filtered.length}
           onSearch={() => void runSearch()}
           searching={loading}
+          demoMode={isDemo}
+          snapshotHint={snapshotHint ?? undefined}
         />
-        {notice && <p className="px-1 pt-4 text-sm text-muted-foreground">{notice}</p>}
+        {notice && (
+          <p className="px-1 pt-4 text-sm text-muted-foreground">{notice}</p>
+        )}
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-xl font-semibold tracking-[-0.03em]">搜索结果</h2>
+              <h2 className="text-xl font-semibold tracking-[-0.03em]">
+                {isDemo ? "岗位线索库" : "搜索结果"}
+              </h2>
               <p className="text-sm text-muted-foreground">
-                搜到的岗位先看内容，再决定要不要加入内容管理。
+                {isDemo
+                  ? "以下为预抓取快照，可筛选城市与关键词；点「进入简历优化」体验评估与润色。"
+                  : "搜到的岗位先看内容，再决定要不要加入内容管理。"}
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {searched && !loading && filters.resultLimit < MAX_JOBS_PER_RUN ? (
+              {!isDemo &&
+              searched &&
+              !loading &&
+              filters.resultLimit < MAX_JOBS_PER_RUN ? (
                 <Button
                   type="button"
                   variant="outline"
                   className="rounded-full"
                   onClick={() => {
-                    const nextLimit = Math.min(MAX_JOBS_PER_RUN, filters.resultLimit + DEFAULT_MAX_JOBS);
+                    const nextLimit = Math.min(
+                      MAX_JOBS_PER_RUN,
+                      filters.resultLimit + DEFAULT_MAX_JOBS,
+                    );
                     setFilters((prev) => ({
                       ...prev,
                       resultLimit: nextLimit as FilterState["resultLimit"],
@@ -578,7 +745,15 @@ export function JobExplorerPage() {
           <JobList
             jobs={filtered}
             loading={loading && filtered.length === 0}
-            emptyMessage={searched ? "这次没有找到合适岗位，换个关键词再试。" : "先搜索一个岗位方向。"}
+            emptyMessage={
+              searched
+                ? isDemo
+                  ? "没有符合筛选条件的岗位，试试清空城市或换个关键词。"
+                  : "这次没有找到合适岗位，换个关键词再试。"
+                : isDemo
+                  ? "当前快照库为空。"
+                  : "先搜索一个岗位方向。"
+            }
             selectedJobId={selectedJobId}
             savedJobIds={savedJobIds}
             onSelect={(job) => setSelectedJobId(job.id)}
@@ -597,17 +772,29 @@ export function JobExplorerPage() {
                       <h2 className="text-2xl font-semibold tracking-[-0.04em] text-foreground">
                         {selectedJobDetail?.title ?? selectedJob.title}
                       </h2>
-                      <p className="text-sm text-muted-foreground">{selectedJobDetail?.company ?? selectedJob.company}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {selectedJobDetail?.company ?? selectedJob.company}
+                      </p>
                     </div>
                     <p className="text-lg font-semibold text-foreground">
-                      {selectedJobDetail?.salary ?? selectedJob.salary ?? "薪资面议"}
+                      {selectedJobDetail?.salary ??
+                        selectedJob.salary ??
+                        "薪资面议"}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">{selectedJob.city}</span>
-                    <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">{selectedJob.experience}</span>
-                    <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">{selectedJob.education}</span>
-                    <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">{selectedJob.companySize}</span>
+                    <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">
+                      {selectedJob.city}
+                    </span>
+                    <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">
+                      {selectedJob.experience}
+                    </span>
+                    <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">
+                      {selectedJob.education}
+                    </span>
+                    <span className="rounded-full border border-sky-100 bg-sky-50/40 px-2.5 py-1">
+                      {selectedJob.companySize}
+                    </span>
                     {!selectedJobDetail ? (
                       <span className="rounded-full border border-sky-100 bg-white px-2.5 py-1 text-sky-700">
                         正在补充职位详情
@@ -617,15 +804,23 @@ export function JobExplorerPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant={savedJobIds.has(selectedJobDetail?.id ?? selectedJob.id) ? "secondary" : "outline"}
-                    className="rounded-full"
-                    onClick={() => void saveJob(selectedJob)}
-                  >
-                    <FolderPlus className="mr-1.5 h-4 w-4" />
-                    {savedJobIds.has(selectedJobDetail?.id ?? selectedJob.id) ? "已在职位看板" : "加入内容管理"}
-                  </Button>
+                  {!isDemo ? (
+                    <Button
+                      type="button"
+                      variant={
+                        savedJobIds.has(selectedJobDetail?.id ?? selectedJob.id)
+                          ? "secondary"
+                          : "outline"
+                      }
+                      className="rounded-full"
+                      onClick={() => void saveJob(selectedJob)}
+                    >
+                      <FolderPlus className="mr-1.5 h-4 w-4" />
+                      {savedJobIds.has(selectedJobDetail?.id ?? selectedJob.id)
+                        ? "已在职位看板"
+                        : "加入内容管理"}
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     className="rounded-full bg-sky-600 text-white hover:bg-sky-700"
@@ -635,7 +830,11 @@ export function JobExplorerPage() {
                   </Button>
                   {(selectedJobDetail?.url ?? selectedJob.url) ? (
                     <Button asChild variant="ghost" className="rounded-full">
-                      <a href={selectedJobDetail?.url ?? selectedJob.url ?? "#"} target="_blank" rel="noreferrer noopener">
+                      <a
+                        href={selectedJobDetail?.url ?? selectedJob.url ?? "#"}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                      >
                         <ExternalLink className="mr-1.5 h-4 w-4" />
                         打开原链接
                       </a>
@@ -649,7 +848,8 @@ export function JobExplorerPage() {
                   </h3>
                   <div className="max-h-[32rem] overflow-auto rounded-[1.5rem] bg-sky-50/80 p-5">
                     <p className="whitespace-pre-wrap text-sm leading-7 text-foreground">
-                      {selectedJobDetail?.jdText ?? "正在补充职位详情，列表顺序已经按 BOSS 返回结果展示。详情补齐后会自动更新这里。"}
+                      {selectedJobDetail?.jdText ??
+                        "正在补充职位详情，列表顺序已经按 BOSS 返回结果展示。详情补齐后会自动更新这里。"}
                     </p>
                   </div>
                 </div>
@@ -674,7 +874,9 @@ export function JobExplorerPage() {
               </div>
             ) : (
               <div className="space-y-3 text-sm text-muted-foreground">
-                <h2 className="text-xl font-semibold tracking-[-0.03em] text-foreground">岗位详情</h2>
+                <h2 className="text-xl font-semibold tracking-[-0.03em] text-foreground">
+                  岗位详情
+                </h2>
                 <p>先搜索一个岗位，或者从左侧结果里点开一条职位。</p>
               </div>
             )}

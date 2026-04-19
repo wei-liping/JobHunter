@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { isDemoModeServer } from "@/lib/demo/mode";
+import { requireNotDemo } from "@/lib/demo/require-not-demo";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,6 +14,11 @@ const createBody = z.object({
 });
 
 export async function GET() {
+  if (isDemoModeServer()) {
+    return NextResponse.json([], {
+      headers: { "Cache-Control": "no-store, max-age=0" },
+    });
+  }
   const sessions = await prisma.interviewSession.findMany({
     orderBy: { updatedAt: "desc" },
     include: {
@@ -25,6 +32,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   const json = await req.json();
   const data = createBody.parse(json);
   const session = await prisma.interviewSession.create({

@@ -29,13 +29,18 @@ const COMPANY_SIZE = [
   "100-499人",
   "500人以上",
 ] as const;
-const CITY_OPTIONS = [
+
+/** 北上广深杭苏宁（与快照脚本一致） */
+const CITY_OPTIONS_CRAWL = [
   { label: "深圳", value: "101280600" },
   { label: "广州", value: "101280100" },
   { label: "北京", value: "101010100" },
   { label: "上海", value: "101020100" },
   { label: "杭州", value: "101210100" },
+  { label: "苏州", value: "101190400" },
+  { label: "南京", value: "101190100" },
 ] as const;
+
 const RESULT_LIMITS = [10, 30, 60] as const;
 
 export type FilterState = {
@@ -54,6 +59,10 @@ type Props = {
   resultCount: number;
   onSearch: () => void;
   searching?: boolean;
+  /** 演示模式：隐藏平台/条数/搜索按钮，城市含「全部」与苏宁 */
+  demoMode?: boolean;
+  /** 演示模式页脚：快照日期说明 */
+  snapshotHint?: string;
 };
 
 /** 不用 flex-1，避免与搜索框同一行时把输入区挤没、或换行后下拉被压成「部平台」 */
@@ -66,10 +75,16 @@ export function FilterBar({
   resultCount,
   onSearch,
   searching = false,
+  demoMode = false,
+  snapshotHint,
 }: Props) {
   function patch(partial: Partial<FilterState>) {
     onChange({ ...value, ...partial });
   }
+
+  const cityOptions = demoMode
+    ? ([{ label: "全部城市", value: "" }, ...CITY_OPTIONS_CRAWL] as const)
+    : CITY_OPTIONS_CRAWL;
 
   return (
     <div className="space-y-4 rounded-xl border bg-card p-4 shadow-md">
@@ -83,38 +98,40 @@ export function FilterBar({
             <Input
               id="explorer-search"
               className="w-full pl-9"
-              placeholder="搜索公司或职位…"
+              placeholder={demoMode ? "筛选职位名或公司名…" : "搜索公司或职位…"}
               value={value.query}
               onChange={(e) => patch({ query: e.target.value })}
               onKeyDown={(e) => {
-                if (e.key === "Enter") onSearch();
+                if (e.key === "Enter" && !demoMode) onSearch();
               }}
             />
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <select
-            className={selectClass}
-            value={value.platform}
-            onChange={(e) =>
-              patch({ platform: e.target.value as FilterState["platform"] })
-            }
-            aria-label="平台"
-          >
-            {PLATFORMS.map((p) => (
-              <option key={p} value={p}>
-                {p === "全部" ? "全部平台" : p}
-              </option>
-            ))}
-          </select>
+          {!demoMode ? (
+            <select
+              className={selectClass}
+              value={value.platform}
+              onChange={(e) =>
+                patch({ platform: e.target.value as FilterState["platform"] })
+              }
+              aria-label="平台"
+            >
+              {PLATFORMS.map((p) => (
+                <option key={p} value={p}>
+                  {p === "全部" ? "全部平台" : p}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <select
             className={selectClass}
             value={value.cityCode}
             onChange={(e) => patch({ cityCode: e.target.value })}
             aria-label="城市"
           >
-            {CITY_OPTIONS.map((c) => (
-              <option key={c.value} value={c.value}>
+            {cityOptions.map((c) => (
+              <option key={c.value || "all"} value={c.value}>
                 {c.label}
               </option>
             ))}
@@ -167,38 +184,53 @@ export function FilterBar({
               </option>
             ))}
           </select>
-          <select
-            className={selectClass}
-            value={String(value.resultLimit)}
-            onChange={(e) =>
-              patch({
-                resultLimit: Number(e.target.value) as FilterState["resultLimit"],
-              })
-            }
-            aria-label="结果数量"
-          >
-            {RESULT_LIMITS.map((x) => (
-              <option key={x} value={x}>
-                每次最多 {x} 条
-              </option>
-            ))}
-          </select>
-          <Button
-            type="button"
-            variant="default"
-            className="h-10 min-w-[7rem] rounded-md px-4"
-            onClick={onSearch}
-            disabled={searching}
-          >
-            {searching ? "搜索中…" : "搜索"}
-          </Button>
+          {!demoMode ? (
+            <>
+              <select
+                className={selectClass}
+                value={String(value.resultLimit)}
+                onChange={(e) =>
+                  patch({
+                    resultLimit: Number(
+                      e.target.value,
+                    ) as FilterState["resultLimit"],
+                  })
+                }
+                aria-label="结果数量"
+              >
+                {RESULT_LIMITS.map((x) => (
+                  <option key={x} value={x}>
+                    每次最多 {x} 条
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="default"
+                className="h-10 min-w-[7rem] rounded-md px-4"
+                onClick={onSearch}
+                disabled={searching}
+              >
+                {searching ? "搜索中…" : "搜索"}
+              </Button>
+            </>
+          ) : null}
         </div>
       </div>
-      <div className="flex items-center justify-between gap-3 border-t pt-3 text-sm text-muted-foreground">
-        <span>当前搜索上限 {value.resultLimit} 条</span>
-        共{" "}
-        <span className="font-medium text-foreground">{resultCount}</span>
-        <span>个职位</span>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-sm text-muted-foreground">
+        {demoMode ? (
+          <span className="min-w-0 flex-1">
+            {snapshotHint?.trim()
+              ? snapshotHint
+              : "以下为预抓取岗位快照，仅用于在线演示。"}
+          </span>
+        ) : (
+          <span>当前搜索上限 {value.resultLimit} 条</span>
+        )}
+        <span className="shrink-0">
+          共 <span className="font-medium text-foreground">{resultCount}</span>
+          <span> 个职位</span>
+        </span>
       </div>
     </div>
   );

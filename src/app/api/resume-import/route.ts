@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireNotDemo } from "@/lib/demo/require-not-demo";
 import {
   extractResumeMarkdownFromImage,
   extractResumeMarkdownFromPdf,
@@ -46,8 +47,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ rawMarkdown: md });
     }
 
-    const sourceType =
-      file.type.startsWith("image/") ? ResumeSourceType.OCR : ResumeSourceType.IMPORTED;
+    const blocked = requireNotDemo();
+    if (blocked) return blocked;
+
+    const sourceType = file.type.startsWith("image/")
+      ? ResumeSourceType.OCR
+      : ResumeSourceType.IMPORTED;
     const resume = await prisma.resume.create({
       data: {
         title:

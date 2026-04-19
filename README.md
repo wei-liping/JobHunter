@@ -25,6 +25,47 @@ JobHunter 是一个面向真实求职流程的本地工作台。
 
 当前定位是**单人本地使用**，不是线上多用户产品。
 
+## 在线演示模式（可选）
+
+用于把项目部署到 Vercel 等环境给别人试用，**无需 PostgreSQL**。与本地完整版对比如下：
+
+| | 本地完整版 | 在线演示版 |
+|---|-------------|------------|
+| 环境变量 | 不设 `DEMO_MODE` | 同时设置 `DEMO_MODE=1` 与 `NEXT_PUBLIC_DEMO_MODE=1` |
+| 数据库 | 需要 `DATABASE_URL` | **可不配置**（请勿调用依赖库的接口写库） |
+| 岗位来源 | 本机 `bb-browser` 实时搜索 | `public/data/jobs-ai-pm.json` 只读快照（AI 产品经理 × 北上广深杭苏宁） |
+| 简历 / 面试 | 写入 Postgres | **仅存访客浏览器**（`localStorage`） |
+| AI 调用 | `.env` 或页面「API」设置 | 访客在页面「API」里**自备 Key**（请求头 `x-openai-key`） |
+
+**Vercel 部署**：在项目设置里添加上述两个环境变量；不要配置 `DATABASE_URL`。构建命令使用默认 `npm run build` 即可（仓库内已含 `vercel.json`）。
+
+**更新岗位快照**（在你已登录 BOSS 的本机执行）：
+
+```bash
+npm run snapshot:ai-pm
+# 检查 public/data/jobs-ai-pm.json 后提交并推送
+git add public/data/jobs-ai-pm.json && git commit -m "chore: refresh job snapshot" && git push
+```
+
+快照脚本会调用 `tools/bb_browser_boss/collect_boss_jobs.js`（需已安装并可执行 `bb-browser`）。若某组关键词与城市抓取失败，脚本会跳过并继续，最终仍写出合并后的 JSON。
+
+**抓取节奏（默认偏保守，降低风控概率）**：
+
+- 单次抓取：列表翻页间隔默认约 6 秒、详情请求间隔默认约 2 秒，并带约 ±40% 随机抖动；关键词组合之间默认约 20 秒（同样带抖动）。单组默认最多翻 3 页、每页合并上限 40 条。
+- 可用环境变量覆盖（单位：秒；抖动比例为 0–1 的小数）：
+  - `JOBHUNTER_SNAPSHOT_LIST_SLEEP`：翻页间隔  
+  - `JOBHUNTER_SNAPSHOT_DETAIL_SLEEP`：详情间隔  
+  - `JOBHUNTER_SNAPSHOT_JITTER_RATIO`：抖动比例（列表、详情、组间共用）  
+  - `JOBHUNTER_SNAPSHOT_PAGES`：每组翻页数  
+  - `JOBHUNTER_SNAPSHOT_MAX_JOBS`：每组最多条数  
+  - `JOBHUNTER_SNAPSHOT_COMBO_SLEEP`：组与组之间的间隔  
+  - `JOBHUNTER_SNAPSHOT_COOLDOWN_SLEEP`：命中风控后的冷却时长（默认约 5 分钟）  
+- 底层脚本还支持命令行：`--list-sleep`、`--detail-sleep`、`--jitter`（秒 / 比例），会覆盖上述与列表相关的环境变量。
+
+**若提示需要验证或访问异常**：
+
+脚本会尽量保留已抓到的岗位并写入 JSON；若连续两次命中风控，会提前结束并仍以非零退出码提示你稍后再试。你可先等待约 10–30 分钟再跑；或换另一 BOSS 账号在本机登录后再跑；或临时放慢，例如：`JOBHUNTER_SNAPSHOT_COMBO_SLEEP=60 JOBHUNTER_SNAPSHOT_DETAIL_SLEEP=4 npm run snapshot:ai-pm`。
+
 ## 主流程
 
 ### 1. 在岗位探索里找岗位
@@ -195,6 +236,8 @@ npm run dev
 如果你要在非开发模式下仍允许本地搜索，可以设置：
 
 - `JOBHUNTER_ALLOW_LOCAL_CRAWL=1`
+
+演示模式下 `/api/crawl/local` 与 SSE 流式接口会返回 403，请使用 `npm run snapshot:ai-pm` 更新快照文件。
 
 ## 常用接口
 

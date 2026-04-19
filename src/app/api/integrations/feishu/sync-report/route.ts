@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { syncLightReportToFeishu } from "@/lib/feishu/sync";
 import { requireAdminToken } from "@/lib/security/request-guards";
+import { requireNotDemo } from "@/lib/demo/require-not-demo";
 
 export async function POST(req: Request) {
+  const blocked = requireNotDemo();
+  if (blocked) return blocked;
   try {
     requireAdminToken(req);
     const result = await syncLightReportToFeishu();
